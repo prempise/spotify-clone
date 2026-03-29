@@ -1,0 +1,1500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spotify – Web Player</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <style>
+    /* === BASE === */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; overflow: hidden; background: #000; }
+    #root { height: 100%; }
+
+    /* === CUSTOM SCROLLBARS (from prototype) === */
+    ::-webkit-scrollbar { width: 12px; height: 12px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #535353; border-radius: 6px; border: 3px solid transparent; background-clip: content-box; }
+    ::-webkit-scrollbar-thumb:hover { background: #b3b3b3; background-clip: content-box; }
+    .scrollbar-hide::-webkit-scrollbar { display: none; }
+    .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+    /* === EQUALIZER BARS (pure CSS – prototype) === */
+    @keyframes eq1 { 0%,100%{height:4px} 50%{height:14px} }
+    @keyframes eq2 { 0%,100%{height:10px} 33%{height:4px} 66%{height:14px} }
+    @keyframes eq3 { 0%,100%{height:8px} 40%{height:14px} 80%{height:4px} }
+
+    /* === ANIMATIONS === */
+    @keyframes fadeIn  { from{opacity:0;transform:scale(0.95)} to{opacity:1;transform:scale(1)} }
+    @keyframes slideUp { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+    @keyframes toastIn { from{opacity:0;transform:translateX(-50%) translateY(16px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
+    .animate-fadeIn  { animation: fadeIn  0.15s ease-out; }
+    .animate-slideUp { animation: slideUp 0.25s ease-out; }
+    .animate-toastIn { animation: toastIn 0.28s ease-out; }
+    .line-clamp-2 { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+
+    /* === CARD PLAY BUTTON (prototype-style float-up animation) === */
+    .card-play-btn {
+      position: absolute; bottom: 8px; right: 8px;
+      width: 48px; height: 48px; border-radius: 50%;
+      background: #1DB954; border: none; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0; transform: translateY(8px);
+      transition: opacity 0.2s, transform 0.2s, background 0.1s;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    }
+    .card-wrap:hover .card-play-btn { opacity: 1; transform: translateY(0); }
+    .card-play-btn:hover { background: #1ed760; transform: translateY(0) scale(1.06) !important; }
+
+    /* === QUICK GRID PLAY BUTTON === */
+    .quick-play-btn {
+      width: 40px; height: 40px; border-radius: 50%;
+      background: #1DB954; border: none; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0; transform: scale(0.85);
+      transition: opacity 0.2s, transform 0.2s, background 0.1s;
+      box-shadow: 0 8px 16px rgba(0,0,0,0.5);
+      flex-shrink: 0; margin-right: 8px;
+    }
+    .quick-card:hover .quick-play-btn { opacity: 1; transform: scale(1); }
+    .quick-play-btn:hover { background: #1ed760; }
+
+    /* === BIG PLAY BUTTON (playlist/album hero) === */
+    .big-play-btn {
+      width: 56px; height: 56px; border-radius: 50%;
+      background: #1DB954; border: none; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: transform 0.1s, background 0.1s;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    }
+    .big-play-btn:hover { background: #1ed760; transform: scale(1.06); }
+
+    /* === SLIDER THUMB POLISH === */
+    input[type=range] { -webkit-appearance: none; }
+    input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel" data-presets="react,typescript">
+    const {
+      useState, useEffect, useRef, useCallback, useMemo,
+      createContext, useContext, memo
+    } = React;
+
+    /* ===================== ICONS ===================== */
+    const Ico = ({ sz=24, fill="none", col="currentColor", sw=2, cls="", children, ...r }) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width={sz} height={sz} viewBox="0 0 24 24"
+        fill={fill} stroke={col} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"
+        className={cls} {...r}>{children}</svg>
+    );
+    const IcoHome    = p => <Ico {...p}><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></Ico>;
+    const IcoSearch  = p => <Ico {...p}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></Ico>;
+    const IcoPlus    = p => <Ico {...p}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></Ico>;
+    const IcoCLeft   = p => <Ico {...p}><polyline points="15 18 9 12 15 6"/></Ico>;
+    const IcoCRight  = p => <Ico {...p}><polyline points="9 18 15 12 9 6"/></Ico>;
+    const IcoPlay    = p => <Ico {...p}><polygon points="5 3 19 12 5 21 5 3"/></Ico>;
+    const IcoPause   = p => <Ico {...p}><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></Ico>;
+    const IcoSkipB   = p => <Ico {...p}><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></Ico>;
+    const IcoSkipF   = p => <Ico {...p}><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></Ico>;
+    const IcoShuffle = p => <Ico {...p}><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/></Ico>;
+    const IcoRepeat  = p => <Ico {...p}><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></Ico>;
+    const IcoRepeat1 = p => <Ico {...p}><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/><line x1="12" y1="8" x2="12" y2="16"/></Ico>;
+    const IcoVol2    = p => <Ico {...p}><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></Ico>;
+    const IcoVol1    = p => <Ico {...p}><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></Ico>;
+    const IcoVolX    = p => <Ico {...p}><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></Ico>;
+    const IcoHeart   = p => <Ico {...p}><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></Ico>;
+    const IcoMore    = p => <Ico {...p}><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></Ico>;
+    const IcoClock   = p => <Ico {...p}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></Ico>;
+    const IcoMusic   = p => <Ico {...p}><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></Ico>;
+    const IcoUser    = p => <Ico {...p}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></Ico>;
+    const IcoX       = p => <Ico {...p}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></Ico>;
+    const IcoMic     = p => <Ico {...p}><path d="M19 11a7 7 0 0 1-7 7m0 0a7 7 0 0 1-7-7m7 7v4m-4 0h8"/><path d="M9 11V6a3 3 0 0 1 6 0v5a3 3 0 0 1-6 0z"/></Ico>;
+    const IcoQueue   = p => <Ico {...p}><path d="M21 15V6"/><path d="M18.5 18a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"/><path d="M12 12H3"/><path d="M16 6H3"/><path d="M12 18H3"/></Ico>;
+    const IcoMaxim   = p => <Ico {...p}><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></Ico>;
+    const IcoMonitor = p => <Ico {...p}><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></Ico>;
+    const IcoLink    = p => <Ico {...p}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></Ico>;
+    const IcoShare   = p => <Ico {...p}><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></Ico>;
+    const IcoLogOut  = p => <Ico {...p}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></Ico>;
+    const IcoSettings= p => <Ico {...p}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></Ico>;
+    const IcoBell    = p => <Ico {...p}><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></Ico>;
+    const IcoCheck   = p => <Ico {...p}><polyline points="20 6 9 17 4 12"/></Ico>;
+    const IcoLib     = p => <Ico {...p}><path d="M3 22a1 1 0 0 1-1-1V3a1 1 0 0 1 2 0v18a1 1 0 0 1-1 1zM15.5 2.134A1 1 0 0 0 14 3v18a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V6.464a1 1 0 0 0-.5-.866l-6-3.464zM9 2a1 1 0 0 0-1 1v18a1 1 0 1 0 2 0V3a1 1 0 0 0-1-1z" fill="currentColor" stroke="none"/></Ico>;
+    const IcoDot     = p => <Ico {...p}><circle cx="12" cy="12" r="5" fill="currentColor" stroke="none"/></Ico>;
+
+    /* ===================== SPOTIFY LOGO ===================== */
+    const SpotifyLogo = () => (
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="#1DB954">
+        <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/>
+      </svg>
+    );
+
+    /* ===================== DATA ===================== */
+    const ARTISTS = [
+      { id:"a1",  name:"The Weeknd",      image:"https://picsum.photos/seed/weeknd/300",      header:"https://picsum.photos/seed/weekndh/1200/400",  monthly:85234567, followers:32000000, genres:["R&B","Pop"],           verified:true, bio:"Abel Makkonen Tesfaye, known as The Weeknd, is a Canadian singer, songwriter, and record producer." },
+      { id:"a2",  name:"Taylor Swift",    image:"https://picsum.photos/seed/taylor/300",      header:"https://picsum.photos/seed/taylorh/1200/400",  monthly:92145678, followers:45000000, genres:["Pop","Country"],        verified:true, bio:"Taylor Alison Swift is an American singer-songwriter known for her narrative songwriting." },
+      { id:"a3",  name:"Drake",           image:"https://picsum.photos/seed/drake/300",       header:"https://picsum.photos/seed/drakeh/1200/400",   monthly:73456789, followers:38000000, genres:["Hip-Hop","R&B"],        verified:true, bio:"Aubrey Drake Graham is a Canadian rapper, singer, and songwriter." },
+      { id:"a4",  name:"Billie Eilish",   image:"https://picsum.photos/seed/billie/300",      header:"https://picsum.photos/seed/billieh/1200/400",  monthly:61234567, followers:28000000, genres:["Pop","Alternative"],    verified:true, bio:"Billie Eilish Pirate Baird O'Connell is an American singer and songwriter." },
+      { id:"a5",  name:"Bad Bunny",       image:"https://picsum.photos/seed/badbunny/300",    header:"https://picsum.photos/seed/badbunnyh/1200/400",monthly:78345678, followers:35000000, genres:["Reggaeton","Latin"],    verified:true, bio:"Benito Antonio Martínez Ocasio, known as Bad Bunny, is a Puerto Rican rapper and singer." },
+      { id:"a6",  name:"Ed Sheeran",      image:"https://picsum.photos/seed/edsheeran/300",   header:"https://picsum.photos/seed/edh/1200/400",      monthly:68123456, followers:31000000, genres:["Pop","Folk"],           verified:true, bio:"Edward Christopher Sheeran is an English singer-songwriter." },
+      { id:"a7",  name:"Ariana Grande",   image:"https://picsum.photos/seed/ariana/300",      header:"https://picsum.photos/seed/arianah/1200/400",  monthly:65432109, followers:34000000, genres:["Pop","R&B"],            verified:true, bio:"Ariana Grande-Butera is an American singer, songwriter, and actress." },
+      { id:"a8",  name:"Post Malone",     image:"https://picsum.photos/seed/postmalone/300",  header:"https://picsum.photos/seed/postm/1200/400",    monthly:54321098, followers:22000000, genres:["Hip-Hop","Pop"],        verified:true, bio:"Austin Richard Post, known as Post Malone, is an American rapper and singer." },
+      { id:"a9",  name:"Dua Lipa",        image:"https://picsum.photos/seed/dualipa/300",     header:"https://picsum.photos/seed/dualipah/1200/400", monthly:58765432, followers:25000000, genres:["Pop","Dance"],          verified:true, bio:"Dua Lipa is an English and Albanian singer and songwriter." },
+      { id:"a10", name:"Harry Styles",    image:"https://picsum.photos/seed/harry/300",       header:"https://picsum.photos/seed/harryh/1200/400",   monthly:52345678, followers:27000000, genres:["Pop","Rock"],           verified:true, bio:"Harry Edward Styles is an English singer, songwriter, and actor." },
+      { id:"a11", name:"Olivia Rodrigo",  image:"https://picsum.photos/seed/olivia/300",      header:"https://picsum.photos/seed/oliviah/1200/400",  monthly:48765432, followers:19000000, genres:["Pop","Alternative"],    verified:true, bio:"Olivia Isabel Rodrigo is an American singer-songwriter and actress." },
+      { id:"a12", name:"Kendrick Lamar",  image:"https://picsum.photos/seed/kendrick/300",    header:"https://picsum.photos/seed/kendrickh/1200/400",monthly:45678901, followers:23000000, genres:["Hip-Hop","Rap"],        verified:true, bio:"Kendrick Lamar Duckworth is an American rapper, songwriter, and record producer." },
+      { id:"a13", name:"Doja Cat",        image:"https://picsum.photos/seed/dojacat/300",     header:"https://picsum.photos/seed/dojah/1200/400",    monthly:51234567, followers:20000000, genres:["Pop","Hip-Hop"],        verified:true, bio:"Amala Ratna Zandile Dlamini, known as Doja Cat, is an American rapper and singer." },
+      { id:"a14", name:"SZA",             image:"https://picsum.photos/seed/sza/300",         header:"https://picsum.photos/seed/szah/1200/400",     monthly:47890123, followers:18000000, genres:["R&B","Neo-Soul"],       verified:true, bio:"Solána Imani Rowe, known as SZA, is an American singer and songwriter." },
+      { id:"a15", name:"Travis Scott",    image:"https://picsum.photos/seed/travis/300",      header:"https://picsum.photos/seed/travish/1200/400",  monthly:43567890, followers:21000000, genres:["Hip-Hop","Trap"],       verified:true, bio:"Jacques Bermon Webster II, known as Travis Scott, is an American rapper and producer." },
+      { id:"a16", name:"Bruno Mars",      image:"https://picsum.photos/seed/brunomars/300",   header:"https://picsum.photos/seed/brunoh/1200/400",   monthly:56789012, followers:29000000, genres:["Pop","R&B","Funk"],     verified:true, bio:"Peter Gene Hernandez, known as Bruno Mars, is an American singer-songwriter." },
+      { id:"a17", name:"Arctic Monkeys",  image:"https://picsum.photos/seed/arcticm/300",     header:"https://picsum.photos/seed/arctich/1200/400",  monthly:38901234, followers:16000000, genres:["Rock","Indie"],         verified:true, bio:"Arctic Monkeys are an English rock band formed in Sheffield in 2002." },
+      { id:"a18", name:"Imagine Dragons", image:"https://picsum.photos/seed/imaginedragons/300",header:"https://picsum.photos/seed/imagineh/1200/400",monthly:52345678,followers:24000000, genres:["Rock","Pop"],           verified:true, bio:"Imagine Dragons is an American pop rock band from Las Vegas, Nevada." },
+      { id:"a19", name:"Beyoncé",         image:"https://picsum.photos/seed/beyonce/300",     header:"https://picsum.photos/seed/beyonceh/1200/400", monthly:49876543, followers:30000000, genres:["R&B","Pop"],            verified:true, bio:"Beyoncé Giselle Knowles-Carter is an American singer, songwriter, and businesswoman." },
+      { id:"a20", name:"Lana Del Rey",    image:"https://picsum.photos/seed/lanadelrey/300",  header:"https://picsum.photos/seed/lanah/1200/400",    monthly:41234567, followers:17000000, genres:["Indie Pop","Dream Pop"],verified:true, bio:"Elizabeth Woolridge Grant, known as Lana Del Rey, is an American singer-songwriter." },
+    ];
+
+    const ALBUMS = [
+      { id:"al1",  title:"After Hours",        artistId:"a1",  cover:"https://picsum.photos/seed/afterhours/300",    year:2020, type:"Album",  label:"XO/Republic",   copyright:"© 2020 The Weeknd XO, Inc." },
+      { id:"al2",  title:"Midnights",          artistId:"a2",  cover:"https://picsum.photos/seed/midnights/300",     year:2022, type:"Album",  label:"Republic Records",copyright:"© 2022 Taylor Swift" },
+      { id:"al3",  title:"Certified Lover Boy",artistId:"a3",  cover:"https://picsum.photos/seed/clb/300",           year:2021, type:"Album",  label:"OVO/Republic",  copyright:"© 2021 OVO" },
+      { id:"al4",  title:"Happier Than Ever",  artistId:"a4",  cover:"https://picsum.photos/seed/happier/300",       year:2021, type:"Album",  label:"Interscope",    copyright:"© 2021 Billie Eilish" },
+      { id:"al5",  title:"Un Verano Sin Ti",   artistId:"a5",  cover:"https://picsum.photos/seed/verano/300",        year:2022, type:"Album",  label:"Rimas",         copyright:"© 2022 Bad Bunny" },
+      { id:"al6",  title:"÷ (Divide)",         artistId:"a6",  cover:"https://picsum.photos/seed/divide/300",        year:2017, type:"Album",  label:"Atlantic",      copyright:"© 2017 Ed Sheeran" },
+      { id:"al7",  title:"Positions",          artistId:"a7",  cover:"https://picsum.photos/seed/positions/300",     year:2020, type:"Album",  label:"Republic",      copyright:"© 2020 Ariana Grande" },
+      { id:"al8",  title:"Hollywood's Bleeding",artistId:"a8", cover:"https://picsum.photos/seed/hollywoods/300",    year:2019, type:"Album",  label:"Republic",      copyright:"© 2019 Post Malone" },
+      { id:"al9",  title:"Future Nostalgia",   artistId:"a9",  cover:"https://picsum.photos/seed/futurenostalgia/300",year:2020,type:"Album",  label:"Warner",        copyright:"© 2020 Dua Lipa" },
+      { id:"al10", title:"Harry's House",      artistId:"a10", cover:"https://picsum.photos/seed/harryshouse/300",   year:2022, type:"Album",  label:"Columbia",      copyright:"© 2022 Harry Styles" },
+      { id:"al11", title:"SOUR",               artistId:"a11", cover:"https://picsum.photos/seed/sour/300",          year:2021, type:"Album",  label:"Geffen",        copyright:"© 2021 Olivia Rodrigo" },
+      { id:"al12", title:"SOS",                artistId:"a14", cover:"https://picsum.photos/seed/sos/300",           year:2022, type:"Album",  label:"TDE/RCA",       copyright:"© 2022 SZA" },
+    ];
+
+    const TRACKS = [
+      { id:"t1",  title:"Blinding Lights",        artistId:"a1",  albumId:"al1", duration:200, cover:"https://picsum.photos/seed/afterhours/300",     explicit:false, plays:3456789012 },
+      { id:"t2",  title:"Save Your Tears",         artistId:"a1",  albumId:"al1", duration:215, cover:"https://picsum.photos/seed/afterhours/300",     explicit:false, plays:2345678901 },
+      { id:"t3",  title:"After Hours",             artistId:"a1",  albumId:"al1", duration:361, cover:"https://picsum.photos/seed/afterhours/300",     explicit:true,  plays:1234567890 },
+      { id:"t4",  title:"Heartless",               artistId:"a1",  albumId:"al1", duration:198, cover:"https://picsum.photos/seed/afterhours/300",     explicit:false, plays:1876543210 },
+      { id:"t5",  title:"Starboy",                 artistId:"a1",  albumId:"al1", duration:230, cover:"https://picsum.photos/seed/starboy/300",        explicit:true,  plays:2876543210 },
+      { id:"t6",  title:"Anti-Hero",               artistId:"a2",  albumId:"al2", duration:200, cover:"https://picsum.photos/seed/midnights/300",      explicit:false, plays:2876543210 },
+      { id:"t7",  title:"Lavender Haze",           artistId:"a2",  albumId:"al2", duration:202, cover:"https://picsum.photos/seed/midnights/300",      explicit:false, plays:1567890123 },
+      { id:"t8",  title:"Midnight Rain",           artistId:"a2",  albumId:"al2", duration:174, cover:"https://picsum.photos/seed/midnights/300",      explicit:false, plays:1234567890 },
+      { id:"t9",  title:"Karma",                   artistId:"a2",  albumId:"al2", duration:204, cover:"https://picsum.photos/seed/midnights/300",      explicit:false, plays:1876543210 },
+      { id:"t10", title:"Bejeweled",               artistId:"a2",  albumId:"al2", duration:194, cover:"https://picsum.photos/seed/midnights/300",      explicit:false, plays:987654321  },
+      { id:"t11", title:"Knife Talk",              artistId:"a3",  albumId:"al3", duration:224, cover:"https://picsum.photos/seed/clb/300",            explicit:true,  plays:1456789012 },
+      { id:"t12", title:"Way 2 Sexy",              artistId:"a3",  albumId:"al3", duration:257, cover:"https://picsum.photos/seed/clb/300",            explicit:true,  plays:1567890123 },
+      { id:"t13", title:"Champagne Poetry",        artistId:"a3",  albumId:"al3", duration:342, cover:"https://picsum.photos/seed/clb/300",            explicit:true,  plays:876543210  },
+      { id:"t14", title:"Happier Than Ever",       artistId:"a4",  albumId:"al4", duration:298, cover:"https://picsum.photos/seed/happier/300",        explicit:true,  plays:1876543210 },
+      { id:"t15", title:"Therefore I Am",          artistId:"a4",  albumId:"al4", duration:174, cover:"https://picsum.photos/seed/happier/300",        explicit:false, plays:1654321098 },
+      { id:"t16", title:"NDA",                     artistId:"a4",  albumId:"al4", duration:194, cover:"https://picsum.photos/seed/happier/300",        explicit:true,  plays:987654321  },
+      { id:"t17", title:"Titi Me Preguntó",        artistId:"a5",  albumId:"al5", duration:244, cover:"https://picsum.photos/seed/verano/300",         explicit:true,  plays:2345678901 },
+      { id:"t18", title:"Me Porto Bonito",         artistId:"a5",  albumId:"al5", duration:178, cover:"https://picsum.photos/seed/verano/300",         explicit:false, plays:2123456789 },
+      { id:"t19", title:"Efecto",                  artistId:"a5",  albumId:"al5", duration:206, cover:"https://picsum.photos/seed/verano/300",         explicit:false, plays:1567890123 },
+      { id:"t20", title:"Shape of You",            artistId:"a6",  albumId:"al6", duration:233, cover:"https://picsum.photos/seed/divide/300",         explicit:false, plays:3876543210 },
+      { id:"t21", title:"Perfect",                 artistId:"a6",  albumId:"al6", duration:263, cover:"https://picsum.photos/seed/divide/300",         explicit:false, plays:3456789012 },
+      { id:"t22", title:"Galway Girl",             artistId:"a6",  albumId:"al6", duration:170, cover:"https://picsum.photos/seed/divide/300",         explicit:false, plays:1654321098 },
+      { id:"t23", title:"positions",               artistId:"a7",  albumId:"al7", duration:172, cover:"https://picsum.photos/seed/positions/300",      explicit:true,  plays:1876543210 },
+      { id:"t24", title:"34+35",                   artistId:"a7",  albumId:"al7", duration:173, cover:"https://picsum.photos/seed/positions/300",      explicit:true,  plays:1654321098 },
+      { id:"t25", title:"pov",                     artistId:"a7",  albumId:"al7", duration:202, cover:"https://picsum.photos/seed/positions/300",      explicit:false, plays:1234567890 },
+      { id:"t26", title:"Circles",                 artistId:"a8",  albumId:"al8", duration:215, cover:"https://picsum.photos/seed/hollywoods/300",     explicit:false, plays:2876543210 },
+      { id:"t27", title:"Sunflower",               artistId:"a8",  albumId:"al8", duration:158, cover:"https://picsum.photos/seed/hollywoods/300",     explicit:false, plays:3123456789 },
+      { id:"t28", title:"Goodbyes",                artistId:"a8",  albumId:"al8", duration:175, cover:"https://picsum.photos/seed/hollywoods/300",     explicit:true,  plays:1567890123 },
+      { id:"t29", title:"Levitating",              artistId:"a9",  albumId:"al9", duration:203, cover:"https://picsum.photos/seed/futurenostalgia/300",explicit:false, plays:2567890123 },
+      { id:"t30", title:"Don't Start Now",         artistId:"a9",  albumId:"al9", duration:183, cover:"https://picsum.photos/seed/futurenostalgia/300",explicit:false, plays:2345678901 },
+      { id:"t31", title:"Physical",                artistId:"a9",  albumId:"al9", duration:193, cover:"https://picsum.photos/seed/futurenostalgia/300",explicit:false, plays:1234567890 },
+      { id:"t32", title:"As It Was",               artistId:"a10", albumId:"al10",duration:167, cover:"https://picsum.photos/seed/harryshouse/300",    explicit:false, plays:3234567890 },
+      { id:"t33", title:"Late Night Talking",      artistId:"a10", albumId:"al10",duration:177, cover:"https://picsum.photos/seed/harryshouse/300",    explicit:false, plays:1876543210 },
+      { id:"t34", title:"Music for a Sushi Restaurant",artistId:"a10",albumId:"al10",duration:194,cover:"https://picsum.photos/seed/harryshouse/300",explicit:false, plays:987654321  },
+      { id:"t35", title:"drivers license",         artistId:"a11", albumId:"al11",duration:242, cover:"https://picsum.photos/seed/sour/300",           explicit:true,  plays:2567890123 },
+      { id:"t36", title:"good 4 u",                artistId:"a11", albumId:"al11",duration:178, cover:"https://picsum.photos/seed/sour/300",           explicit:true,  plays:2345678901 },
+      { id:"t37", title:"deja vu",                 artistId:"a11", albumId:"al11",duration:215, cover:"https://picsum.photos/seed/sour/300",           explicit:false, plays:1876543210 },
+      { id:"t38", title:"brutal",                  artistId:"a11", albumId:"al11",duration:143, cover:"https://picsum.photos/seed/sour/300",           explicit:true,  plays:1234567890 },
+      { id:"t39", title:"Kill Bill",               artistId:"a14", albumId:"al12",duration:153, cover:"https://picsum.photos/seed/sos/300",            explicit:true,  plays:2345678901 },
+      { id:"t40", title:"Snooze",                  artistId:"a14", albumId:"al12",duration:202, cover:"https://picsum.photos/seed/sos/300",            explicit:true,  plays:1876543210 },
+      { id:"t41", title:"Shirt",                   artistId:"a14", albumId:"al12",duration:210, cover:"https://picsum.photos/seed/sos/300",            explicit:true,  plays:1234567890 },
+      { id:"t42", title:"HUMBLE.",                 artistId:"a12", albumId:"al3", duration:177, cover:"https://picsum.photos/seed/humble/300",         explicit:true,  plays:2876543210 },
+      { id:"t43", title:"Say So",                  artistId:"a13", albumId:"al4", duration:234, cover:"https://picsum.photos/seed/sayso/300",          explicit:false, plays:1876543210 },
+      { id:"t44", title:"SICKO MODE",              artistId:"a15", albumId:"al8", duration:312, cover:"https://picsum.photos/seed/sicko/300",          explicit:true,  plays:2345678901 },
+      { id:"t45", title:"24K Magic",               artistId:"a16", albumId:"al6", duration:226, cover:"https://picsum.photos/seed/24kmagic/300",       explicit:false, plays:2567890123 },
+      { id:"t46", title:"Do I Wanna Know?",        artistId:"a17", albumId:"al9", duration:272, cover:"https://picsum.photos/seed/diwk/300",           explicit:false, plays:2123456789 },
+      { id:"t47", title:"Radioactive",             artistId:"a18", albumId:"al10",duration:187, cover:"https://picsum.photos/seed/radioactive/300",    explicit:false, plays:2876543210 },
+      { id:"t48", title:"Believer",                artistId:"a18", albumId:"al10",duration:204, cover:"https://picsum.photos/seed/believer/300",       explicit:false, plays:2567890123 },
+      { id:"t49", title:"Halo",                    artistId:"a19", albumId:"al7", duration:261, cover:"https://picsum.photos/seed/halo/300",           explicit:false, plays:2345678901 },
+      { id:"t50", title:"Summertime Sadness",      artistId:"a20", albumId:"al11",duration:265, cover:"https://picsum.photos/seed/summertime/300",     explicit:false, plays:2123456789 },
+    ];
+
+    const PLAYLISTS = [
+      { id:"pl1",  name:"Liked Songs",      description:"",                                             cover:"",                                                owner:"You",     isLikedSongs:true,  trackIds:["t1","t6","t20","t29","t32","t35","t39"], followers:0,     isPublic:false },
+      { id:"pl2",  name:"Chill Vibes",      description:"Perfect tracks for relaxing and unwinding.",    cover:"https://picsum.photos/seed/chillvibes/300",       owner:"John Doe",isLikedSongs:false, trackIds:["t21","t25","t33","t40","t50"],            followers:1247,  isPublic:true  },
+      { id:"pl3",  name:"Workout Hits",     description:"High energy tracks to power your workout.",     cover:"https://picsum.photos/seed/workout/300",           owner:"Spotify", isLikedSongs:false, trackIds:["t1","t20","t29","t36","t42","t44","t47"],  followers:8976,  isPublic:true  },
+      { id:"pl4",  name:"Daily Mix 1",      description:"The Weeknd, Drake, Post Malone and more",       cover:"https://picsum.photos/seed/dailymix1/300",         owner:"Spotify", isLikedSongs:false, trackIds:["t1","t2","t11","t26","t27","t5"],           followers:0,     isPublic:false },
+      { id:"pl5",  name:"Discover Weekly",  description:"Your weekly mixtape of fresh music.",           cover:"https://picsum.photos/seed/discover/300",          owner:"Spotify", isLikedSongs:false, trackIds:["t14","t17","t31","t39","t43","t46"],        followers:0,     isPublic:false },
+      { id:"pl6",  name:"Release Radar",    description:"Catch all the latest music from artists you follow.", cover:"https://picsum.photos/seed/release/300",    owner:"Spotify", isLikedSongs:false, trackIds:["t6","t7","t32","t39","t40"],               followers:0,     isPublic:false },
+      { id:"pl7",  name:"Top Hits 2024",    description:"The biggest songs right now.",                  cover:"https://picsum.photos/seed/tophits/300",           owner:"Spotify", isLikedSongs:false, trackIds:["t1","t6","t20","t29","t32","t35","t39","t42"],followers:45678,isPublic:true  },
+      { id:"pl8",  name:"Indie Favorites",  description:"The best indie tracks handpicked for you.",     cover:"https://picsum.photos/seed/indie/300",             owner:"John Doe",isLikedSongs:false, trackIds:["t46","t50","t34","t38"],                   followers:234,   isPublic:true  },
+      { id:"pl9",  name:"R&B Essentials",   description:"Smooth R&B classics and modern hits.",          cover:"https://picsum.photos/seed/rnb/300",               owner:"Spotify", isLikedSongs:false, trackIds:["t3","t23","t24","t39","t40","t49"],          followers:12345, isPublic:true  },
+      { id:"pl10", name:"Late Night Drive", description:"Perfect soundtrack for driving at night.",       cover:"https://picsum.photos/seed/latenight/300",         owner:"John Doe",isLikedSongs:false, trackIds:["t1","t3","t26","t46","t50","t5"],            followers:567,   isPublic:true  },
+      { id:"pl11", name:"Party Mix",        description:"Turn up the volume!",                           cover:"https://picsum.photos/seed/partymix/300",          owner:"Spotify", isLikedSongs:false, trackIds:["t17","t18","t29","t43","t44","t45"],         followers:9876,  isPublic:true  },
+      { id:"pl12", name:"Acoustic Covers",  description:"Stripped-down versions of your favorite songs.", cover:"https://picsum.photos/seed/acoustic/300",         owner:"John Doe",isLikedSongs:false, trackIds:["t21","t22","t25","t33"],                    followers:345,   isPublic:true  },
+    ];
+
+    const CATEGORIES = [
+      { id:"c1",  name:"Pop",          color:"#E91429", image:"https://picsum.photos/seed/pop/200"        },
+      { id:"c2",  name:"Hip-Hop",      color:"#8D67AB", image:"https://picsum.photos/seed/hiphop/200"    },
+      { id:"c3",  name:"Rock",         color:"#E61E32", image:"https://picsum.photos/seed/rock/200"       },
+      { id:"c4",  name:"R&B",          color:"#DC148C", image:"https://picsum.photos/seed/rnbcat/200"    },
+      { id:"c5",  name:"Country",      color:"#FF6437", image:"https://picsum.photos/seed/country/200"   },
+      { id:"c6",  name:"Electronic",   color:"#7358FF", image:"https://picsum.photos/seed/electronic/200"},
+      { id:"c7",  name:"Latin",        color:"#E1118C", image:"https://picsum.photos/seed/latin/200"     },
+      { id:"c8",  name:"Indie",        color:"#608108", image:"https://picsum.photos/seed/indie2/200"    },
+      { id:"c9",  name:"Classical",    color:"#477D95", image:"https://picsum.photos/seed/classical/200" },
+      { id:"c10", name:"Metal",        color:"#1E3264", image:"https://picsum.photos/seed/metal/200"     },
+      { id:"c11", name:"Jazz",         color:"#E91429", image:"https://picsum.photos/seed/jazz/200"      },
+      { id:"c12", name:"Soul",         color:"#503750", image:"https://picsum.photos/seed/soul/200"      },
+      { id:"c13", name:"Podcasts",     color:"#006450", image:"https://picsum.photos/seed/podcasts/200"  },
+      { id:"c14", name:"Charts",       color:"#8D67AB", image:"https://picsum.photos/seed/charts/200"   },
+      { id:"c15", name:"New Releases", color:"#E61E32", image:"https://picsum.photos/seed/newrel/200"   },
+      { id:"c16", name:"Mood",         color:"#477D95", image:"https://picsum.photos/seed/mood/200"      },
+      { id:"c17", name:"Workout",      color:"#1E3264", image:"https://picsum.photos/seed/workoutcat/200"},
+      { id:"c18", name:"Chill",        color:"#608108", image:"https://picsum.photos/seed/chill/200"     },
+      { id:"c19", name:"Party",        color:"#E1118C", image:"https://picsum.photos/seed/party/200"     },
+      { id:"c20", name:"Sleep",        color:"#1E3264", image:"https://picsum.photos/seed/sleep/200"     },
+      { id:"c21", name:"Gaming",       color:"#7358FF", image:"https://picsum.photos/seed/gaming/200"    },
+      { id:"c22", name:"Discover",     color:"#E91429", image:"https://picsum.photos/seed/discover2/200" },
+      { id:"c23", name:"Made For You", color:"#1DB954", image:"https://picsum.photos/seed/madeforyou/200"},
+      { id:"c24", name:"Live Events",  color:"#503750", image:"https://picsum.photos/seed/live/200"      },
+    ];
+
+    /* ===================== UTILS ===================== */
+    const fmtTime = (s) => { const m=Math.floor(s/60),sec=Math.floor(s%60); return `${m}:${sec.toString().padStart(2,"0")}`; };
+    const fmtNum  = (n) => { if(n>=1e9)return(n/1e9).toFixed(1)+"B"; if(n>=1e6)return(n/1e6).toFixed(1)+"M"; if(n>=1e3)return(n/1e3).toFixed(1)+"K"; return String(n); };
+    const greeting= ()  => { const h=new Date().getHours(); return h<12?"Good morning":h<18?"Good afternoon":"Good evening"; };
+    const getArtist= id => ARTISTS.find(a=>a.id===id);
+    const getAlbum = id => ALBUMS.find(a=>a.id===id);
+    const getTrack = id => TRACKS.find(t=>t.id===id);
+    const tracksForAlbum  = albumId  => TRACKS.filter(t=>t.albumId===albumId);
+    const tracksForArtist = artistId => TRACKS.filter(t=>t.artistId===artistId);
+    const albumsForArtist = artistId => ALBUMS.filter(a=>a.artistId===artistId);
+    const enrichTrack = t => ({ ...t, artistName: getArtist(t.artistId)?.name||"", albumTitle: getAlbum(t.albumId)?.title||"" });
+    const heroGrad = name => { const palette=["#1a472a","#1e3264","#503750","#477D95","#8D67AB","#861515","#1b3a4b","#2d4a22","#8b4513"]; return palette[Math.abs(name.charCodeAt(0))%palette.length]; };
+
+    /* ===================== CONTEXT ===================== */
+    const Ctx = createContext(null);
+
+    const AppProvider = ({ children }) => {
+      const [nav, setNav]                     = useState({ page:"home" });
+      const [navHistory, setNavHistory]       = useState([{ page:"home" }]);
+      const [navIdx, setNavIdx]               = useState(0);
+      const [currentTrack, setCurrentTrack]   = useState(enrichTrack(TRACKS[0]));
+      const [isPlaying, setIsPlaying]         = useState(false);
+      const [currentTime, setCurrentTime]     = useState(0);
+      const [volume, setVolume]               = useState(0.7);
+      const [isMuted, setIsMuted]             = useState(false);
+      const [shuffleOn, setShuffleOn]         = useState(false);
+      const [repeatMode, setRepeatModeState]  = useState("off");
+      const [queue, setQueue]                 = useState([]);
+      const [likedSongs, setLikedSongs]       = useState(()=>{ try{return JSON.parse(localStorage.getItem("sp_likes")||'["t1","t6","t20","t29","t32"]')}catch{return[]} });
+      const [followedArtists, setFollowed]    = useState(()=>{ try{return JSON.parse(localStorage.getItem("sp_follows")||'["a1","a2","a9"]')}catch{return[]} });
+      const [showQueue, setShowQueue]         = useState(false);
+      const [toasts, setToasts]               = useState([]);
+      const [contextMenu, setContextMenu]     = useState(null);
+      const [showCreatePl, setShowCreatePl]   = useState(false);
+      const [userPlaylists, setUserPlaylists] = useState(PLAYLISTS);
+
+      const timerRef = useRef(null);
+      const toastId  = useRef(0);
+
+      useEffect(()=>{ localStorage.setItem("sp_likes",   JSON.stringify(likedSongs)); },     [likedSongs]);
+      useEffect(()=>{ localStorage.setItem("sp_follows", JSON.stringify(followedArtists)); },[followedArtists]);
+
+      useEffect(()=>{
+        if(isPlaying && currentTrack){
+          timerRef.current = setInterval(()=>{
+            setCurrentTime(prev=>{
+              if(prev>=currentTrack.duration-1){ if(repeatMode==="one")return 0; setTimeout(()=>playNext(),0); return 0; }
+              return prev+1;
+            });
+          },1000);
+        }
+        return ()=>clearInterval(timerRef.current);
+      },[isPlaying,currentTrack,repeatMode]);
+
+      const navigate = useCallback((page,id)=>{
+        const nn={page,id};
+        setNav(nn);
+        setNavHistory(prev=>{ const next=[...prev.slice(0,navIdx+1),nn]; setNavIdx(next.length-1); return next; });
+      },[navIdx]);
+
+      const goBack    = useCallback(()=>{ if(navIdx>0){ setNavIdx(i=>i-1); setNav(navHistory[navIdx-1]); } },[navIdx,navHistory]);
+      const goForward = useCallback(()=>{ if(navIdx<navHistory.length-1){ setNavIdx(i=>i+1); setNav(navHistory[navIdx+1]); } },[navIdx,navHistory]);
+
+      const playTrack = useCallback((track,trackList)=>{
+        const e=enrichTrack(track);
+        setCurrentTrack(e); setCurrentTime(0); setIsPlaying(true);
+        if(trackList){ const i=trackList.findIndex(t=>t.id===track.id); setQueue(trackList.slice(i+1).map(enrichTrack)); }
+      },[]);
+
+      const togglePlay = useCallback(()=>setIsPlaying(p=>!p),[]);
+
+      const playNext = useCallback(()=>{
+        if(queue.length>0){
+          const next = shuffleOn ? queue[Math.floor(Math.random()*queue.length)] : queue[0];
+          setCurrentTrack(next); setQueue(q=>q.filter(t=>t.id!==next.id)); setCurrentTime(0);
+        } else if(repeatMode==="all"){ setCurrentTime(0); } else { setIsPlaying(false); }
+      },[queue,shuffleOn,repeatMode]);
+
+      const playPrev = useCallback(()=>setCurrentTime(0),[]);
+      const seek     = useCallback((t)=>setCurrentTime(t),[]);
+
+      const addToast = useCallback((msg)=>{
+        const id=++toastId.current;
+        setToasts(prev=>[...prev,{id,msg}]);
+        setTimeout(()=>setToasts(prev=>prev.filter(t=>t.id!==id)),3000);
+      },[]);
+
+      const toggleLike = useCallback((trackId)=>{
+        setLikedSongs(prev=>{ const has=prev.includes(trackId); addToast(has?"Removed from Liked Songs":"Added to Liked Songs"); return has?prev.filter(i=>i!==trackId):[...prev,trackId]; });
+      },[]);
+
+      const toggleFollow = useCallback((artistId)=>{
+        setFollowed(prev=>{ const has=prev.includes(artistId); addToast(has?"Unfollowed":"Following"); return has?prev.filter(i=>i!==artistId):[...prev,artistId]; });
+      },[]);
+
+      const addToQueue = useCallback((track)=>{ setQueue(q=>[...q,enrichTrack(track)]); addToast("Added to queue"); },[]);
+
+      const cycleRepeat = useCallback(()=>setRepeatModeState(m=>m==="off"?"all":m==="all"?"one":"off"),[]);
+
+      const createPlaylist = useCallback((name)=>{
+        const pl={ id:"pl_"+Date.now(), name, description:"", cover:`https://picsum.photos/seed/${Date.now()}/300`, owner:"You", isLikedSongs:false, trackIds:[], followers:0, isPublic:true };
+        setUserPlaylists(prev=>[...prev,pl]); addToast("Playlist created"); setShowCreatePl(false);
+      },[]);
+
+      useEffect(()=>{
+        const hk=(e)=>{
+          if(e.target instanceof HTMLInputElement) return;
+          if(e.code==="Space"){ e.preventDefault(); togglePlay(); }
+          if(e.code==="ArrowRight"){ e.preventDefault(); seek(Math.min(currentTime+10,currentTrack?.duration||0)); }
+          if(e.code==="ArrowLeft") { e.preventDefault(); seek(Math.max(currentTime-10,0)); }
+          if(e.code==="ArrowUp")   { e.preventDefault(); setVolume(v=>Math.min(v+0.1,1)); }
+          if(e.code==="ArrowDown") { e.preventDefault(); setVolume(v=>Math.max(v-0.1,0)); }
+        };
+        window.addEventListener("keydown",hk);
+        return ()=>window.removeEventListener("keydown",hk);
+      },[currentTime,currentTrack]);
+
+      const value = useMemo(()=>({
+        nav,navigate,goBack,goForward,navIdx,navHistory,
+        currentTrack,isPlaying,currentTime,volume,isMuted,shuffleOn,repeatMode,queue,
+        playTrack,togglePlay,playNext,playPrev,seek,setVolume,setIsMuted,setShuffleOn,
+        cycleRepeat,likedSongs,toggleLike,followedArtists,toggleFollow,
+        showQueue,setShowQueue,toasts,addToast,contextMenu,setContextMenu,
+        showCreatePl,setShowCreatePl,userPlaylists,createPlaylist,addToQueue,
+      }),[nav,currentTrack,isPlaying,currentTime,volume,isMuted,shuffleOn,repeatMode,queue,
+          likedSongs,followedArtists,showQueue,toasts,contextMenu,showCreatePl,userPlaylists,
+          navIdx,navHistory]);
+
+      return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+    };
+
+    const useApp = () => useContext(Ctx);
+
+    /* ===================== EQUALIZER BARS (CSS-only, from prototype) ===================== */
+    const EqBars = () => (
+      <div style={{ display:"flex",alignItems:"flex-end",gap:2,height:14 }}>
+        {[1,2,3].map(i=>(
+          <span key={i} style={{
+            display:"inline-block", width:3, borderRadius:2,
+            background:"#1DB954",
+            animation:`eq${i} 0.9s ease-in-out infinite`,
+            animationDelay: i===2?"0.15s":i===3?"0.3s":"0s",
+          }}/>
+        ))}
+      </div>
+    );
+
+    /* ===================== CUSTOM SLIDER ===================== */
+    const Slider = ({ value, max, onChange, accent="#1DB954" }) => {
+      const ref     = useRef(null);
+      const [drag, setDrag]   = useState(false);
+      const [hov,  setHov]    = useState(false);
+      const pct = max>0 ? (value/max)*100 : 0;
+
+      const calc = useCallback((e)=>{
+        if(!ref.current) return;
+        const r=ref.current.getBoundingClientRect();
+        onChange(Math.max(0,Math.min(e.clientX-r.left,r.width))/r.width*max);
+      },[max,onChange]);
+
+      useEffect(()=>{
+        if(!drag) return;
+        const mv=(e)=>calc(e), up=()=>setDrag(false);
+        window.addEventListener("mousemove",mv); window.addEventListener("mouseup",up);
+        return ()=>{ window.removeEventListener("mousemove",mv); window.removeEventListener("mouseup",up); };
+      },[drag,calc]);
+
+      return (
+        <div ref={ref} style={{ position:"relative",height:12,display:"flex",alignItems:"center",cursor:"pointer",flex:1 }}
+          onMouseDown={(e)=>{ setDrag(true); calc(e); }}
+          onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)}>
+          <div style={{ width:"100%",height: hov||drag?5:3,borderRadius:3,backgroundColor:"#4d4d4d",transition:"height 0.1s",position:"relative" }}>
+            <div style={{ width:`${pct}%`,height:"100%",borderRadius:3,backgroundColor:hov||drag?accent:"#fff",transition:"background 0.1s" }}/>
+          </div>
+          {(hov||drag) && (
+            <div style={{ position:"absolute",left:`calc(${pct}% - 6px)`,width:12,height:12,borderRadius:"50%",background:"#fff",boxShadow:"0 2px 8px rgba(0,0,0,0.4)" }}/>
+          )}
+        </div>
+      );
+    };
+
+    /* ===================== TOASTS ===================== */
+    const Toasts = () => {
+      const { toasts } = useApp();
+      return (
+        <div style={{ position:"fixed",bottom:106,left:"50%",transform:"translateX(-50%)",zIndex:9999,display:"flex",flexDirection:"column",gap:8,pointerEvents:"none" }}>
+          {toasts.map(t=>(
+            <div key={t.id} className="animate-toastIn" style={{
+              background:"#242424",color:"#fff",border:"1px solid #727272",
+              padding:"12px 24px",borderRadius:4,fontSize:14,fontWeight:600,
+              whiteSpace:"nowrap",textAlign:"center",
+            }}>{t.msg}</div>
+          ))}
+        </div>
+      );
+    };
+
+    /* ===================== CONTEXT MENU ===================== */
+    const ContextMenuComp = () => {
+      const { contextMenu, setContextMenu, toggleLike, likedSongs, addToQueue, navigate } = useApp();
+      const ref = useRef(null);
+
+      useEffect(()=>{
+        const hnd=(e)=>{ if(ref.current&&!ref.current.contains(e.target))setContextMenu(null); };
+        const esc=(e)=>{ if(e.key==="Escape")setContextMenu(null); };
+        document.addEventListener("mousedown",hnd); document.addEventListener("keydown",esc);
+        return ()=>{ document.removeEventListener("mousedown",hnd); document.removeEventListener("keydown",esc); };
+      },[]);
+
+      if(!contextMenu) return null;
+      const { x, y, track } = contextMenu;
+      const liked = likedSongs.includes(track?.id);
+      const items = [
+        { label:"Add to queue",   action:()=>{ addToQueue(track); setContextMenu(null); } },
+        { divider:true },
+        { label:"Go to artist",   action:()=>{ navigate("artist",track.artistId); setContextMenu(null); } },
+        { label:"Go to album",    action:()=>{ navigate("album",track.albumId);   setContextMenu(null); } },
+        { divider:true },
+        { label: liked?"Remove from Liked Songs":"Save to Liked Songs", action:()=>{ toggleLike(track.id); setContextMenu(null); } },
+        { divider:true },
+        { label:"Share",          action:()=>{ navigator.clipboard?.writeText(window.location.href); setContextMenu(null); } },
+      ];
+      return (
+        <div ref={ref} className="animate-fadeIn" style={{
+          position:"fixed",left:Math.min(x,window.innerWidth-224),top:Math.min(y,window.innerHeight-300),
+          width:220,background:"#282828",borderRadius:4,boxShadow:"0 16px 24px rgba(0,0,0,0.5)",
+          zIndex:9998,padding:"4px 0",
+        }}>
+          {items.map((item,i)=>
+            item.divider ? <div key={i} style={{ height:1,background:"#3e3e3e",margin:"4px 0" }}/> :
+            <button key={i} onClick={item.action} style={{
+              width:"100%",textAlign:"left",padding:"10px 14px",fontSize:14,color:"#fff",
+              background:"none",border:"none",cursor:"pointer",display:"flex",alignItems:"center",gap:8,
+            }}
+              onMouseEnter={e=>e.currentTarget.style.background="#3e3e3e"}
+              onMouseLeave={e=>e.currentTarget.style.background="none"}
+            >{item.label}</button>
+          )}
+        </div>
+      );
+    };
+
+    /* ===================== CREATE PLAYLIST MODAL ===================== */
+    const CreatePlaylistModal = () => {
+      const { showCreatePl, setShowCreatePl, createPlaylist } = useApp();
+      const [name, setName] = useState("");
+      if(!showCreatePl) return null;
+      return (
+        <div style={{ position:"fixed",inset:0,zIndex:9990,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,0.75)" }}
+          onClick={()=>setShowCreatePl(false)}>
+          <div style={{ background:"#282828",borderRadius:8,padding:32,width:400,maxWidth:"90vw" }} onClick={e=>e.stopPropagation()}>
+            <h2 style={{ fontSize:24,fontWeight:700,color:"#fff",marginBottom:24 }}>Create a playlist</h2>
+            <input value={name} onChange={e=>setName(e.target.value)} placeholder="Add a name"
+              style={{ width:"100%",padding:"12px 16px",borderRadius:4,background:"#3e3e3e",color:"#fff",fontSize:14,border:"none",outline:"none",marginBottom:24 }}
+              onKeyDown={e=>{ if(e.key==="Enter"&&name.trim())createPlaylist(name.trim()); }} autoFocus />
+            <div style={{ display:"flex",justifyContent:"flex-end",gap:12 }}>
+              <button onClick={()=>setShowCreatePl(false)} style={{ padding:"10px 24px",borderRadius:100,background:"none",border:"none",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:14 }}>Cancel</button>
+              <button onClick={()=>name.trim()&&createPlaylist(name.trim())} style={{ padding:"10px 24px",borderRadius:100,background:"#1DB954",border:"none",color:"#000",fontWeight:700,cursor:"pointer",fontSize:14 }}>Create</button>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    /* ===================== CARD ===================== */
+    const Card = memo(({ item, type, onClick }) => {
+      const { playTrack, navigate } = useApp();
+      const [hov, setHov] = useState(false);
+
+      const handlePlay = (e) => {
+        e.stopPropagation();
+        if(type==="track")   playTrack(item);
+        else if(type==="playlist"){ const ts=(item.trackIds||[]).map(getTrack).filter(Boolean); if(ts.length)playTrack(ts[0],ts); }
+        else if(type==="album")  { const ts=tracksForAlbum(item.id);  if(ts.length)playTrack(ts[0],ts); }
+        else if(type==="artist") { const ts=tracksForArtist(item.id); if(ts.length)playTrack(ts[0],ts); }
+      };
+
+      return (
+        <div className="card-wrap" style={{ padding:16,borderRadius:8,background:hov?"#282828":"#181818",cursor:"pointer",transition:"background 0.2s",position:"relative" }}
+          onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)}
+          onClick={()=>onClick?.(item)}>
+          <div style={{ position:"relative",marginBottom:12 }}>
+            <img src={item.cover||item.image||"https://picsum.photos/seed/default/300"} alt={item.name||item.title}
+              style={{ width:"100%",aspectRatio:"1",objectFit:"cover",borderRadius:type==="artist"?"50%":6,display:"block",boxShadow:"0 4px 16px rgba(0,0,0,0.4)" }} />
+            <button className="card-play-btn" onClick={handlePlay}>
+              <IcoPlay sz={18} fill="black" col="black" />
+            </button>
+          </div>
+          <p style={{ fontSize:14,fontWeight:700,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:4 }}>{item.name||item.title}</p>
+          <p style={{ fontSize:13,color:"#A7A7A7",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden" }}>
+            {type==="artist"   ? "Artist" :
+             type==="album"    ? getArtist(item.artistId)?.name :
+             type==="playlist" ? (item.description||`By ${item.owner}`) :
+             item.artistName   || getArtist(item.artistId)?.name || ""}
+          </p>
+        </div>
+      );
+    });
+
+    /* ===================== QUICK CARD (home grid) – prototype style ===================== */
+    const QuickCard = ({ item, onClick }) => {
+      const { playTrack } = useApp();
+      const [hov, setHov] = useState(false);
+
+      return (
+        <div className="quick-card" style={{
+          display:"flex",alignItems:"center",background:hov?"#3e3e3e":"#2a2a2a",
+          borderRadius:4,overflow:"hidden",cursor:"pointer",height:56,position:"relative",
+          transition:"background 0.1s",
+        }}
+          onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)}
+          onClick={()=>onClick?.(item)}>
+          {item.isLikedSongs ? (
+            <div style={{ width:56,height:56,background:"linear-gradient(135deg,#450af5,#c4efd9)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
+              <IcoHeart sz={22} fill="white" col="white" />
+            </div>
+          ) : (
+            <img src={item.cover||"https://picsum.photos/seed/pl/300"} alt="" style={{ width:56,height:56,objectFit:"cover",flexShrink:0 }} />
+          )}
+          <span style={{ fontSize:13,fontWeight:700,color:"#fff",flex:1,padding:"0 12px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{item.name}</span>
+          <button className="quick-play-btn" onClick={e=>{ e.stopPropagation(); const ts=(item.trackIds||[]).map(getTrack).filter(Boolean); if(ts.length)playTrack(ts[0],ts); }}>
+            <IcoPlay sz={16} fill="black" col="black" />
+          </button>
+        </div>
+      );
+    };
+
+    /* ===================== TRACK ROW ===================== */
+    const TrackRow = memo(({ track, index, showAlbum=true, showDate=false, onPlay }) => {
+      const { currentTrack, isPlaying, toggleLike, likedSongs, setContextMenu, navigate } = useApp();
+      const [hov, setHov] = useState(false);
+      const isCurrent = currentTrack?.id===track.id;
+      const liked     = likedSongs.includes(track.id);
+      const artist    = getArtist(track.artistId);
+      const cols      = showAlbum && showDate ? "40px 4fr 3fr 2fr 40px 50px" :
+                        showAlbum             ? "40px 4fr 3fr 40px 50px" :
+                                                "40px 4fr 40px 50px";
+
+      return (
+        <div style={{ display:"grid",gridTemplateColumns:cols,gap:8,padding:"4px 8px",borderRadius:4,cursor:"pointer",alignItems:"center",height:56,
+          background:hov?"rgba(255,255,255,0.07)":"transparent",transition:"background 0.1s" }}
+          onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)}
+          onDoubleClick={()=>onPlay?.(track)}
+          onContextMenu={e=>{ e.preventDefault(); setContextMenu({ x:e.clientX,y:e.clientY,track }); }}>
+
+          {/* Index / play / eq */}
+          <div style={{ display:"flex",justifyContent:"center",alignItems:"center",width:40 }}>
+            {hov ? (
+              <button onClick={()=>onPlay?.(track)} style={{ background:"none",border:"none",cursor:"pointer",color:"#fff",display:"flex" }}>
+                <IcoPlay sz={14} fill="white" col="white" />
+              </button>
+            ) : isCurrent && isPlaying ? <EqBars />
+              : <span style={{ fontSize:14,color:isCurrent?"#1DB954":"#A7A7A7" }}>{index+1}</span>}
+          </div>
+
+          {/* Track info */}
+          <div style={{ display:"flex",alignItems:"center",gap:12,minWidth:0,paddingLeft:8 }}>
+            <img src={track.cover} alt="" style={{ width:40,height:40,borderRadius:4,objectFit:"cover",flexShrink:0 }}/>
+            <div style={{ minWidth:0 }}>
+              <p style={{ fontSize:14,fontWeight:500,color:isCurrent?"#1DB954":"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{track.title}</p>
+              <p style={{ fontSize:12,color:"#A7A7A7",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>
+                {track.explicit && <span style={{ display:"inline-block",padding:"0 4px",marginRight:6,fontSize:9,background:"#A7A7A7",color:"#000",borderRadius:2,fontWeight:700 }}>E</span>}
+                <span style={{ cursor:"pointer" }} onClick={e=>{ e.stopPropagation(); navigate("artist",track.artistId); }}
+                  onMouseEnter={e=>e.target.style.textDecoration="underline"} onMouseLeave={e=>e.target.style.textDecoration=""}>
+                  {artist?.name}
+                </span>
+              </p>
+            </div>
+          </div>
+
+          {/* Album */}
+          {showAlbum && (
+            <span style={{ fontSize:14,color:"#A7A7A7",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer" }}
+              onClick={e=>{ e.stopPropagation(); navigate("album",track.albumId); }}
+              onMouseEnter={e=>e.currentTarget.style.textDecoration="underline"}
+              onMouseLeave={e=>e.currentTarget.style.textDecoration=""}>
+              {getAlbum(track.albumId)?.title}
+            </span>
+          )}
+
+          {/* Date added (prototype-style) */}
+          {showDate && (
+            <span style={{ fontSize:14,color:"#A7A7A7" }}>
+              {new Date(Date.now()-Math.random()*1e10).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}
+            </span>
+          )}
+
+          {/* Heart */}
+          <div style={{ display:"flex",justifyContent:"center" }}>
+            {(hov||liked) && (
+              <button onClick={e=>{ e.stopPropagation(); toggleLike(track.id); }} style={{ background:"none",border:"none",cursor:"pointer",display:"flex",transition:"transform 0.1s" }}
+                onMouseEnter={e=>e.currentTarget.style.transform="scale(1.1)"}
+                onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}>
+                <IcoHeart sz={16} fill={liked?"#1DB954":"none"} col={liked?"#1DB954":"#A7A7A7"} />
+              </button>
+            )}
+          </div>
+
+          {/* Duration */}
+          <span style={{ fontSize:14,color:"#A7A7A7",textAlign:"right" }}>{fmtTime(track.duration)}</span>
+        </div>
+      );
+    });
+
+    /* ===================== SCROLL SECTION ===================== */
+    const ScrollSection = ({ title, items, type, onSeeAll }) => {
+      const { navigate } = useApp();
+      const handleClick = (item) => {
+        if(type==="artist")   navigate("artist",item.id);
+        else if(type==="album")    navigate("album",item.id);
+        else if(type==="playlist") navigate("playlist",item.id);
+      };
+      return (
+        <section style={{ marginBottom:32 }}>
+          <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16 }}>
+            <h2 style={{ fontSize:22,fontWeight:800,color:"#fff",cursor:"pointer" }}
+              onMouseEnter={e=>e.currentTarget.style.textDecoration="underline"}
+              onMouseLeave={e=>e.currentTarget.style.textDecoration=""}>{title}</h2>
+            {onSeeAll && <button onClick={onSeeAll} style={{ fontSize:12,fontWeight:700,color:"#A7A7A7",background:"none",border:"none",cursor:"pointer",textTransform:"uppercase",letterSpacing:1 }}
+              onMouseEnter={e=>{ e.currentTarget.style.textDecoration="underline"; e.currentTarget.style.color="#fff"; }}
+              onMouseLeave={e=>{ e.currentTarget.style.textDecoration=""; e.currentTarget.style.color="#A7A7A7"; }}>
+              Show all
+            </button>}
+          </div>
+          <div className="scrollbar-hide" style={{ display:"flex",gap:12,overflowX:"auto",paddingBottom:8 }}>
+            {items.map(item=>(
+              <div key={item.id} style={{ flexShrink:0,width:180 }}>
+                <Card item={item} type={type} onClick={handleClick}/>
+              </div>
+            ))}
+          </div>
+        </section>
+      );
+    };
+
+    /* ===================== TRACK TABLE HEADER (prototype-style) ===================== */
+    const TrackTableHeader = ({ showAlbum, showDate }) => {
+      const cols = showAlbum && showDate ? "40px 4fr 3fr 2fr 40px 50px" :
+                   showAlbum             ? "40px 4fr 3fr 40px 50px" :
+                                           "40px 4fr 40px 50px";
+      return (
+        <div style={{ display:"grid",gridTemplateColumns:cols,gap:8,padding:"0 8px 8px",borderBottom:"1px solid #282828",marginBottom:8 }}>
+          <span style={{ fontSize:12,color:"#A7A7A7",fontWeight:700,textTransform:"uppercase",letterSpacing:1,textAlign:"center" }}>#</span>
+          <span style={{ fontSize:12,color:"#A7A7A7",fontWeight:700,textTransform:"uppercase",letterSpacing:1,paddingLeft:8 }}>Title</span>
+          {showAlbum && <span style={{ fontSize:12,color:"#A7A7A7",fontWeight:700,textTransform:"uppercase",letterSpacing:1 }}>Album</span>}
+          {showDate  && <span style={{ fontSize:12,color:"#A7A7A7",fontWeight:700,textTransform:"uppercase",letterSpacing:1 }}>Date added</span>}
+          <span></span>
+          <IcoClock sz={14} col="#A7A7A7" style={{ justifySelf:"flex-end" }}/>
+        </div>
+      );
+    };
+
+    /* ===================== SIDEBAR ===================== */
+    const Sidebar = () => {
+      const { nav, navigate, setShowCreatePl, userPlaylists, likedSongs, followedArtists } = useApp();
+      const [libFilter, setLibFilter] = useState("all");
+      const [searchLib, setSearchLib] = useState("");
+      const filters = ["all","Playlists","Artists"];
+
+      const libraryItems = useMemo(()=>{
+        let items = [];
+        if(libFilter==="all"||libFilter==="Playlists") items=[...items,...userPlaylists.map(p=>({...p,type:"playlist"}))];
+        if(libFilter==="all"||libFilter==="Artists") items=[...items,...followedArtists.map(id=>{ const a=getArtist(id); return a?{...a,type:"artist"}:null; }).filter(Boolean)];
+        if(searchLib) items=items.filter(i=>(i.name||i.title||"").toLowerCase().includes(searchLib.toLowerCase()));
+        return items;
+      },[libFilter,searchLib,userPlaylists,followedArtists]);
+
+      return (
+        <div style={{ display:"flex",flexDirection:"column",height:"100%",gap:8,flexShrink:0,width:300 }}>
+          {/* Nav box */}
+          <div style={{ background:"#121212",borderRadius:8,padding:8 }}>
+            {/* Spotify logo */}
+            <div style={{ display:"flex",alignItems:"center",gap:10,padding:"12px 16px 16px",cursor:"pointer" }} onClick={()=>navigate("home")}>
+              <SpotifyLogo/>
+              <span style={{ color:"#fff",fontSize:"1.3rem",fontWeight:800,letterSpacing:"-0.5px" }}>Spotify</span>
+            </div>
+            {[
+              { page:"home",   label:"Home",   icon:<IcoHome   sz={24} fill={nav.page==="home"?"white":"none"} col={nav.page==="home"?"white":"#A7A7A7"}/> },
+              { page:"search", label:"Search", icon:<IcoSearch sz={24} col={nav.page==="search"?"white":"#A7A7A7"}/> },
+            ].map(({page,label,icon})=>(
+              <button key={page} onClick={()=>navigate(page)} style={{
+                display:"flex",alignItems:"center",gap:16,width:"100%",padding:"8px 16px",borderRadius:4,
+                background:"none",border:"none",cursor:"pointer",fontWeight:700,fontSize:14,
+                color:nav.page===page?"#fff":"#A7A7A7",transition:"color 0.1s",
+              }}
+                onMouseEnter={e=>{ if(nav.page!==page) e.currentTarget.style.color="#fff"; }}
+                onMouseLeave={e=>{ if(nav.page!==page) e.currentTarget.style.color="#A7A7A7"; }}>
+                {icon}{label}
+              </button>
+            ))}
+          </div>
+
+          {/* Library box */}
+          <div style={{ background:"#121212",borderRadius:8,display:"flex",flexDirection:"column",flex:1,minHeight:0 }}>
+            <div style={{ padding:"12px 16px 8px",display:"flex",alignItems:"center",justifyContent:"space-between" }}>
+              <button style={{ display:"flex",alignItems:"center",gap:8,background:"none",border:"none",cursor:"pointer",color:"#A7A7A7",fontWeight:700,fontSize:14 }}
+                onMouseEnter={e=>e.currentTarget.style.color="#fff"} onMouseLeave={e=>e.currentTarget.style.color="#A7A7A7"}>
+                <IcoLib sz={24} col="currentColor" fill="currentColor"/>Your Library
+              </button>
+              <button onClick={()=>setShowCreatePl(true)} style={{ width:32,height:32,borderRadius:"50%",background:"none",border:"none",cursor:"pointer",color:"#A7A7A7",display:"flex",alignItems:"center",justifyContent:"center" }}
+                onMouseEnter={e=>{ e.currentTarget.style.background="#1a1a1a"; e.currentTarget.style.color="#fff"; }}
+                onMouseLeave={e=>{ e.currentTarget.style.background="none"; e.currentTarget.style.color="#A7A7A7"; }}>
+                <IcoPlus sz={18}/>
+              </button>
+            </div>
+
+            {/* Filter pills – prototype styling */}
+            <div className="scrollbar-hide" style={{ display:"flex",gap:6,padding:"0 8px 10px",overflowX:"auto" }}>
+              {filters.map(f=>(
+                <button key={f} onClick={()=>setLibFilter(f===libFilter?"all":f)} style={{
+                  padding:"5px 14px",borderRadius:100,fontSize:13,fontWeight:600,cursor:"pointer",border:"none",
+                  background: f===libFilter?"#fff":"#2a2a2a",
+                  color: f===libFilter?"#000":"#fff",
+                  transition:"background 0.15s",whiteSpace:"nowrap",fontFamily:"inherit",
+                }}>
+                  {f==="all"?"All":f}
+                </button>
+              ))}
+            </div>
+
+            {/* Library search */}
+            <div style={{ padding:"0 8px 8px" }}>
+              <div style={{ position:"relative" }}>
+                <IcoSearch sz={14} col="#A7A7A7" style={{ position:"absolute",left:8,top:"50%",transform:"translateY(-50%)" }}/>
+                <input value={searchLib} onChange={e=>setSearchLib(e.target.value)} placeholder="Search in Your Library"
+                  style={{ width:"100%",background:"#2a2a2a",color:"#fff",fontSize:12,padding:"6px 8px 6px 28px",borderRadius:4,border:"none",outline:"none" }}/>
+              </div>
+            </div>
+
+            {/* Library list */}
+            <div style={{ flex:1,overflowY:"auto",padding:"0 8px 8px",scrollbarWidth:"thin",scrollbarColor:"#535353 transparent" }}>
+              {libraryItems.map(item=>(
+                <button key={item.id} onClick={()=>{
+                  if(item.isLikedSongs) navigate("liked");
+                  else if(item.type==="playlist") navigate("playlist",item.id);
+                  else if(item.type==="artist")   navigate("artist",item.id);
+                }} style={{
+                  display:"flex",alignItems:"center",gap:12,width:"100%",padding:8,borderRadius:4,
+                  background:"none",border:"none",cursor:"pointer",transition:"background 0.1s",
+                }}
+                  onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.07)"}
+                  onMouseLeave={e=>e.currentTarget.style.background="none"}>
+                  {item.isLikedSongs ? (
+                    <div style={{ width:48,height:48,borderRadius:4,background:"linear-gradient(135deg,#450af5,#c4efd9)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
+                      <IcoHeart sz={16} fill="white" col="white"/>
+                    </div>
+                  ) : (
+                    <img src={item.cover||item.image||"https://picsum.photos/seed/def/300"} alt=""
+                      style={{ width:48,height:48,objectFit:"cover",flexShrink:0,borderRadius:item.type==="artist"?"50%":4 }}/>
+                  )}
+                  <div style={{ minWidth:0,textAlign:"left" }}>
+                    <p style={{ fontSize:14,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
+                      color: (item.isLikedSongs&&nav.page==="liked")||(nav.id===item.id)?"#1DB954":"#fff" }}>
+                      {item.name||item.title}
+                    </p>
+                    <p style={{ fontSize:12,color:"#A7A7A7",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>
+                      {item.isLikedSongs ? `Playlist • ${likedSongs.length} songs` :
+                       item.type==="playlist" ? `Playlist • ${item.owner}` : "Artist"}
+                    </p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    /* ===================== HEADER ===================== */
+    const Header = ({ scrolled=false }) => {
+      const { goBack, goForward, navIdx, navHistory } = useApp();
+      const [showProfile, setShowProfile] = useState(false);
+      return (
+        <div style={{
+          display:"flex",alignItems:"center",justifyContent:"space-between",
+          padding:"16px 24px",position:"sticky",top:0,zIndex:20,
+          background: scrolled?"rgba(18,18,18,0.95)":"transparent",
+          backdropFilter: scrolled?"blur(20px)":"none",transition:"background 0.3s",
+        }}>
+          <div style={{ display:"flex",gap:8 }}>
+            {[{fn:goBack,dis:navIdx===0,icon:<IcoCLeft sz={18} col="white"/>},
+              {fn:goForward,dis:navIdx>=navHistory.length-1,icon:<IcoCRight sz={18} col="white"/>}].map(({fn,dis,icon},i)=>(
+              <button key={i} onClick={fn} disabled={dis} style={{
+                width:32,height:32,borderRadius:"50%",background:"rgba(0,0,0,0.7)",border:"none",
+                cursor:dis?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",
+                opacity:dis?0.3:1,transition:"opacity 0.1s, background 0.1s",
+              }}
+                onMouseEnter={e=>{ if(!dis)e.currentTarget.style.background="rgba(0,0,0,0.9)"; }}
+                onMouseLeave={e=>e.currentTarget.style.background="rgba(0,0,0,0.7)"}>
+                {icon}
+              </button>
+            ))}
+          </div>
+          <div style={{ display:"flex",alignItems:"center",gap:8,position:"relative" }}>
+            <button style={{ width:32,height:32,borderRadius:"50%",background:"rgba(0,0,0,0.7)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"#A7A7A7" }}
+              onMouseEnter={e=>e.currentTarget.style.color="#fff"} onMouseLeave={e=>e.currentTarget.style.color="#A7A7A7"}>
+              <IcoBell sz={16}/>
+            </button>
+            <button onClick={()=>setShowProfile(!showProfile)} style={{ width:32,height:32,borderRadius:"50%",background:"#1DB954",border:"none",cursor:"pointer",color:"#000",fontWeight:700,fontSize:13 }}>J</button>
+            {showProfile && (
+              <div className="animate-fadeIn" style={{ position:"absolute",right:0,top:"calc(100% + 8px)",width:192,background:"#282828",borderRadius:4,boxShadow:"0 16px 24px rgba(0,0,0,0.5)",padding:"4px 0",zIndex:50 }}>
+                {[{l:"Account",I:IcoLink},{l:"Profile",I:IcoUser},{l:"Settings",I:IcoSettings}].map(({l,I})=>(
+                  <button key={l} style={{ width:"100%",textAlign:"left",padding:"10px 14px",fontSize:14,color:"#fff",background:"none",border:"none",cursor:"pointer",display:"flex",alignItems:"center",gap:8 }}
+                    onMouseEnter={e=>e.currentTarget.style.background="#3e3e3e"} onMouseLeave={e=>e.currentTarget.style.background="none"}>
+                    <I sz={16}/>{l}
+                  </button>
+                ))}
+                <div style={{ height:1,background:"#3e3e3e",margin:"4px 0" }}/>
+                <button style={{ width:"100%",textAlign:"left",padding:"10px 14px",fontSize:14,color:"#fff",background:"none",border:"none",cursor:"pointer",display:"flex",alignItems:"center",gap:8 }}
+                  onMouseEnter={e=>e.currentTarget.style.background="#3e3e3e"} onMouseLeave={e=>e.currentTarget.style.background="none"}>
+                  <IcoLogOut sz={16}/>Log out
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    /* ===================== PLAYER BAR ===================== */
+    const PlayerBar = () => {
+      const { currentTrack,isPlaying,currentTime,volume,isMuted,shuffleOn,repeatMode,
+        togglePlay,playNext,playPrev,seek,setVolume,setIsMuted,setShuffleOn,
+        cycleRepeat,toggleLike,likedSongs,showQueue,setShowQueue,navigate } = useApp();
+
+      if(!currentTrack) return null;
+      const liked = likedSongs.includes(currentTrack.id);
+      const volIcon = isMuted||volume===0 ? <IcoVolX sz={16}/> : volume<0.5 ? <IcoVol1 sz={16}/> : <IcoVol2 sz={16}/>;
+
+      return (
+        <div style={{ display:"grid",gridTemplateColumns:"1fr auto 1fr",alignItems:"center",padding:"0 16px",height:90,background:"#181818",borderTop:"1px solid #282828",gap:8 }}>
+
+          {/* Left: Now playing */}
+          <div style={{ display:"flex",alignItems:"center",gap:12,minWidth:0,padding:"8px 0" }}>
+            <img src={currentTrack.cover} alt="" style={{ width:56,height:56,borderRadius:4,objectFit:"cover",flexShrink:0,cursor:"pointer",boxShadow:"0 4px 16px rgba(0,0,0,0.4)" }}
+              onClick={()=>navigate("album",currentTrack.albumId)}/>
+            <div style={{ overflow:"hidden",minWidth:0 }}>
+              <p style={{ fontSize:13,fontWeight:500,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer" }}
+                onClick={()=>navigate("album",currentTrack.albumId)}
+                onMouseEnter={e=>e.currentTarget.style.textDecoration="underline"}
+                onMouseLeave={e=>e.currentTarget.style.textDecoration=""}>{currentTrack.title}</p>
+              <p style={{ fontSize:11,color:"#A7A7A7",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer" }}
+                onClick={()=>navigate("artist",currentTrack.artistId)}
+                onMouseEnter={e=>{ e.currentTarget.style.textDecoration="underline"; e.currentTarget.style.color="#fff"; }}
+                onMouseLeave={e=>{ e.currentTarget.style.textDecoration=""; e.currentTarget.style.color="#A7A7A7"; }}>{currentTrack.artistName}</p>
+            </div>
+            <button onClick={()=>toggleLike(currentTrack.id)} style={{ background:"none",border:"none",cursor:"pointer",flexShrink:0,display:"flex",padding:4,transition:"transform 0.1s" }}
+              onMouseEnter={e=>e.currentTarget.style.transform="scale(1.1)"} onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}>
+              <IcoHeart sz={16} fill={liked?"#1DB954":"none"} col={liked?"#1DB954":"#A7A7A7"}/>
+            </button>
+          </div>
+
+          {/* Center: Controls */}
+          <div style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:8,minWidth:520 }}>
+            <div style={{ display:"flex",alignItems:"center",gap:16 }}>
+              {[
+                { fn:()=>setShuffleOn(!shuffleOn), active:shuffleOn, icon:<IcoShuffle sz={16}/>, dot:true },
+                { fn:playPrev,                      active:false,     icon:<IcoSkipB sz={20} fill="currentColor"/> },
+                null, // play/pause
+                { fn:playNext,                      active:false,     icon:<IcoSkipF sz={20} fill="currentColor"/> },
+                { fn:cycleRepeat,                   active:repeatMode!=="off", icon:repeatMode==="one"?<IcoRepeat1 sz={16}/>:<IcoRepeat sz={16}/>, dot:true },
+              ].map((ctrl,i)=>(
+                ctrl===null ? (
+                  <button key="pp" onClick={togglePlay} style={{ width:32,height:32,borderRadius:"50%",background:"#fff",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"#000",transition:"transform 0.1s" }}
+                    onMouseEnter={e=>e.currentTarget.style.transform="scale(1.06)"} onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}>
+                    {isPlaying?<IcoPause sz={18} fill="black" col="black"/>:<IcoPlay sz={18} fill="black" col="black"/>}
+                  </button>
+                ) : (
+                  <button key={i} onClick={ctrl.fn} style={{ position:"relative",background:"none",border:"none",cursor:"pointer",color:ctrl.active?"#1DB954":"#A7A7A7",display:"flex",alignItems:"center",padding:4,transition:"color 0.1s,transform 0.1s" }}
+                    onMouseEnter={e=>{ if(!ctrl.active)e.currentTarget.style.color="#fff"; e.currentTarget.style.transform="scale(1.05)"; }}
+                    onMouseLeave={e=>{ if(!ctrl.active)e.currentTarget.style.color="#A7A7A7"; e.currentTarget.style.transform="scale(1)"; }}>
+                    {ctrl.icon}
+                    {ctrl.dot && ctrl.active && <IcoDot sz={4} style={{ position:"absolute",bottom:-5,left:"50%",transform:"translateX(-50%)" }}/>}
+                  </button>
+                )
+              ))}
+            </div>
+            <div style={{ display:"flex",alignItems:"center",gap:8,width:"100%" }}>
+              <span style={{ fontSize:11,color:"#A7A7A7",minWidth:40,textAlign:"right" }}>{fmtTime(currentTime)}</span>
+              <Slider value={currentTime} max={currentTrack.duration} onChange={seek}/>
+              <span style={{ fontSize:11,color:"#A7A7A7",minWidth:40 }}>{fmtTime(currentTrack.duration)}</span>
+            </div>
+          </div>
+
+          {/* Right: Extra controls */}
+          <div style={{ display:"flex",alignItems:"center",gap:8,justifyContent:"flex-end" }}>
+            {[{i:<IcoMic sz={16}/>,action:null},{i:<IcoQueue sz={16}/>,action:()=>setShowQueue(!showQueue),active:showQueue},{i:<IcoMonitor sz={16}/>,action:null}].map((b,i)=>(
+              <button key={i} onClick={b.action} style={{ background:"none",border:"none",cursor:"pointer",color:b.active?"#1DB954":"#A7A7A7",display:"flex",padding:4,transition:"color 0.1s" }}
+                onMouseEnter={e=>{ if(!b.active)e.currentTarget.style.color="#fff"; }}
+                onMouseLeave={e=>{ if(!b.active)e.currentTarget.style.color="#A7A7A7"; }}>
+                {b.i}
+              </button>
+            ))}
+            <div style={{ display:"flex",alignItems:"center",gap:4,minWidth:140 }}>
+              <button onClick={()=>setIsMuted(!isMuted)} style={{ background:"none",border:"none",cursor:"pointer",color:"#A7A7A7",display:"flex",padding:4 }}
+                onMouseEnter={e=>e.currentTarget.style.color="#fff"} onMouseLeave={e=>e.currentTarget.style.color="#A7A7A7"}>
+                {volIcon}
+              </button>
+              <Slider value={isMuted?0:volume} max={1} onChange={v=>{ setVolume(v); setIsMuted(false); }}/>
+            </div>
+            <button style={{ background:"none",border:"none",cursor:"pointer",color:"#A7A7A7",display:"flex",padding:4 }}
+              onMouseEnter={e=>e.currentTarget.style.color="#fff"} onMouseLeave={e=>e.currentTarget.style.color="#A7A7A7"}>
+              <IcoMaxim sz={16}/>
+            </button>
+          </div>
+        </div>
+      );
+    };
+
+    /* ===================== QUEUE PANEL ===================== */
+    const QueuePanel = () => {
+      const { showQueue, setShowQueue, currentTrack, queue } = useApp();
+      if(!showQueue) return null;
+      return (
+        <div style={{ flexShrink:0,borderLeft:"1px solid #282828",overflowY:"auto",width:320,background:"#121212",scrollbarWidth:"thin",scrollbarColor:"#535353 transparent" }}>
+          <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:16 }}>
+            <h2 style={{ fontSize:16,fontWeight:700,color:"#fff" }}>Queue</h2>
+            <button onClick={()=>setShowQueue(false)} style={{ background:"none",border:"none",cursor:"pointer",color:"#A7A7A7",display:"flex" }}
+              onMouseEnter={e=>e.currentTarget.style.color="#fff"} onMouseLeave={e=>e.currentTarget.style.color="#A7A7A7"}>
+              <IcoX sz={20}/>
+            </button>
+          </div>
+          {currentTrack && (
+            <div style={{ padding:"0 16px 20px" }}>
+              <p style={{ fontSize:11,fontWeight:700,color:"#A7A7A7",marginBottom:8,textTransform:"uppercase",letterSpacing:1 }}>Now playing</p>
+              <div style={{ display:"flex",alignItems:"center",gap:12,padding:8,borderRadius:4,background:"#1a1a1a" }}>
+                <img src={currentTrack.cover} style={{ width:40,height:40,borderRadius:4,objectFit:"cover" }} alt=""/>
+                <div style={{ minWidth:0 }}>
+                  <p style={{ fontSize:14,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"#1DB954" }}>{currentTrack.title}</p>
+                  <p style={{ fontSize:12,color:"#A7A7A7",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{currentTrack.artistName}</p>
+                </div>
+              </div>
+            </div>
+          )}
+          {queue.length>0 ? (
+            <div style={{ padding:"0 16px 16px" }}>
+              <p style={{ fontSize:11,fontWeight:700,color:"#A7A7A7",marginBottom:8,textTransform:"uppercase",letterSpacing:1 }}>Next in queue</p>
+              {queue.map((track,i)=>(
+                <div key={track.id+i} style={{ display:"flex",alignItems:"center",gap:12,padding:8,borderRadius:4,transition:"background 0.1s",cursor:"pointer" }}
+                  onMouseEnter={e=>e.currentTarget.style.background="#1a1a1a"} onMouseLeave={e=>e.currentTarget.style.background="none"}>
+                  <img src={track.cover} style={{ width:40,height:40,borderRadius:4,objectFit:"cover" }} alt=""/>
+                  <div style={{ minWidth:0 }}>
+                    <p style={{ fontSize:14,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{track.title}</p>
+                    <p style={{ fontSize:12,color:"#A7A7A7",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{track.artistName}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ padding:16,textAlign:"center" }}>
+              <p style={{ color:"#A7A7A7",fontSize:14 }}>No tracks in queue</p>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    /* ===================== HOME PAGE ===================== */
+    const HomePage = () => {
+      const { navigate, userPlaylists } = useApp();
+      const [scrolled, setScrolled] = useState(false);
+      const scrollRef = useRef(null);
+
+      useEffect(()=>{
+        const el=scrollRef.current; if(!el) return;
+        const h=()=>setScrolled(el.scrollTop>40);
+        el.addEventListener("scroll",h); return ()=>el.removeEventListener("scroll",h);
+      },[]);
+
+      const quickAccess = userPlaylists.slice(0,6);
+
+      return (
+        <div ref={scrollRef} style={{ flex:1,overflowY:"auto",borderRadius:8,background:"#121212" }}>
+          <Header scrolled={scrolled}/>
+          <div style={{ padding:"0 24px 32px",marginTop:-8 }}>
+            <h1 style={{ fontSize:28,fontWeight:800,color:"#fff",marginBottom:20 }}>{greeting()}</h1>
+
+            {/* Quick Grid – 3-column, prototype style */}
+            <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:32 }}>
+              {quickAccess.map(pl=>(
+                <QuickCard key={pl.id} item={pl}
+                  onClick={()=>pl.isLikedSongs?navigate("liked"):navigate("playlist",pl.id)}/>
+              ))}
+            </div>
+
+            <ScrollSection title="Recently Played"   items={userPlaylists.slice(0,6)} type="playlist" onSeeAll={()=>{}}/>
+            <ScrollSection title="Made for You"      items={userPlaylists.filter(p=>["Daily Mix 1","Discover Weekly","Release Radar"].includes(p.name))} type="playlist"/>
+            <ScrollSection title="Popular Artists"   items={ARTISTS.slice(0,8)} type="artist" onSeeAll={()=>{}}/>
+            <ScrollSection title="New Releases"      items={ALBUMS.slice(0,8)} type="album" onSeeAll={()=>{}}/>
+            <ScrollSection title="Featured Charts"   items={userPlaylists.filter(p=>p.owner==="Spotify").slice(0,6)} type="playlist"/>
+          </div>
+        </div>
+      );
+    };
+
+    /* ===================== SEARCH PAGE ===================== */
+    const SearchPage = () => {
+      const { navigate, playTrack } = useApp();
+      const [query, setQuery] = useState("");
+      const [scrolled, setScrolled] = useState(false);
+      const scrollRef = useRef(null);
+
+      useEffect(()=>{
+        const el=scrollRef.current; if(!el) return;
+        const h=()=>setScrolled(el.scrollTop>20);
+        el.addEventListener("scroll",h); return ()=>el.removeEventListener("scroll",h);
+      },[]);
+
+      const results = useMemo(()=>{
+        if(!query.trim()) return null;
+        const q=query.toLowerCase();
+        return {
+          tracks:   TRACKS.filter(t=>t.title.toLowerCase().includes(q)||getArtist(t.artistId)?.name.toLowerCase().includes(q)).slice(0,4),
+          artists:  ARTISTS.filter(a=>a.name.toLowerCase().includes(q)).slice(0,6),
+          albums:   ALBUMS.filter(a=>a.title.toLowerCase().includes(q)||getArtist(a.artistId)?.name.toLowerCase().includes(q)).slice(0,6),
+          playlists:PLAYLISTS.filter(p=>p.name.toLowerCase().includes(q)).slice(0,6),
+        };
+      },[query]);
+
+      const topResult = results?.artists[0] || (results?.tracks[0]?{...results.tracks[0],name:results.tracks[0].title,image:results.tracks[0].cover,type:"track"}:null);
+
+      return (
+        <div ref={scrollRef} style={{ flex:1,overflowY:"auto",borderRadius:8,background:"#121212" }}>
+          <div style={{
+            position:"sticky",top:0,zIndex:20,padding:"16px 24px",display:"flex",alignItems:"center",gap:16,
+            background:scrolled?"rgba(18,18,18,0.95)":"#121212",backdropFilter:scrolled?"blur(20px)":"none",
+          }}>
+            <div style={{ position:"relative",flex:1,maxWidth:480 }}>
+              <IcoSearch sz={20} col="#121212" style={{ position:"absolute",left:14,top:"50%",transform:"translateY(-50%)",pointerEvents:"none" }}/>
+              <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="What do you want to listen to?"
+                style={{ width:"100%",height:48,padding:"0 48px",borderRadius:24,background:"#fff",color:"#121212",fontSize:14,border:"none",outline:"none",fontFamily:"inherit" }}
+                autoFocus/>
+              {query && (
+                <button onClick={()=>setQuery("")} style={{ position:"absolute",right:14,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:"#121212",display:"flex" }}>
+                  <IcoX sz={20}/>
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div style={{ padding:"0 24px 32px" }}>
+            {!results ? (
+              <>
+                <h2 style={{ fontSize:24,fontWeight:800,color:"#fff",marginBottom:20 }}>Browse all</h2>
+                <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8 }}>
+                  {CATEGORIES.map(cat=>(
+                    <div key={cat.id} style={{ borderRadius:8,overflow:"hidden",position:"relative",aspectRatio:"1.5",cursor:"pointer",background:cat.color,transition:"filter 0.2s" }}
+                      onMouseEnter={e=>e.currentTarget.style.filter="brightness(1.1)"}
+                      onMouseLeave={e=>e.currentTarget.style.filter=""}>
+                      <h3 style={{ position:"absolute",top:0,left:0,padding:12,fontSize:16,fontWeight:700,color:"#fff",zIndex:1 }}>{cat.name}</h3>
+                      <img src={cat.image} alt="" style={{ position:"absolute",bottom:-4,right:-4,width:80,height:80,borderRadius:4,transform:"rotate(25deg)",boxShadow:"0 2px 12px rgba(0,0,0,0.5)",objectFit:"cover" }}/>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Top result + songs */}
+                {(topResult||results.tracks.length>0) && (
+                  <div style={{ display:"grid",gridTemplateColumns:"2fr 3fr",gap:24,marginBottom:32 }}>
+                    {topResult && (
+                      <div>
+                        <h2 style={{ fontSize:18,fontWeight:700,color:"#fff",marginBottom:16 }}>Top result</h2>
+                        <div style={{ background:"#282828",borderRadius:8,padding:20,cursor:"pointer",position:"relative",transition:"background 0.1s" }}
+                          onMouseEnter={e=>e.currentTarget.style.background="#3e3e3e"} onMouseLeave={e=>e.currentTarget.style.background="#282828"}
+                          onClick={()=>topResult.type==="track"?playTrack(topResult):navigate("artist",topResult.id)}>
+                          <img src={topResult.image||topResult.cover} alt="" style={{ width:92,height:92,borderRadius:topResult.type==="artist"?"50%":4,objectFit:"cover",marginBottom:16 }}/>
+                          <p style={{ fontSize:28,fontWeight:700,color:"#fff",marginBottom:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{topResult.name}</p>
+                          <p style={{ fontSize:14,color:"#A7A7A7" }}>{topResult.type==="track"?`Song • ${getArtist(topResult.artistId)?.name}`:"Artist"}</p>
+                          <button className="card-play-btn" style={{ position:"absolute",bottom:20,right:20,opacity:undefined,transform:undefined }}
+                            onClick={e=>{ e.stopPropagation(); topResult.type==="track"?playTrack(topResult):null; }}>
+                            <IcoPlay sz={20} fill="black" col="black"/>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {results.tracks.length>0 && (
+                      <div>
+                        <h2 style={{ fontSize:18,fontWeight:700,color:"#fff",marginBottom:16 }}>Songs</h2>
+                        {results.tracks.map((t,i)=>(
+                          <TrackRow key={t.id} track={t} index={i} showAlbum={false} onPlay={tr=>playTrack(tr,results.tracks)}/>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {results.artists.length>0   && <ScrollSection title="Artists"   items={results.artists}   type="artist"/>}
+                {results.albums.length>0    && <ScrollSection title="Albums"    items={results.albums}    type="album"/>}
+                {results.playlists.length>0 && <ScrollSection title="Playlists" items={results.playlists} type="playlist"/>}
+              </>
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    /* ===================== PLAYLIST PAGE ===================== */
+    const PlaylistPage = ({ playlistId }) => {
+      const { playTrack, navigate, likedSongs, toggleLike, addToast } = useApp();
+      const [scrolled, setScrolled] = useState(false);
+      const [shuffleHov, setShuffleHov] = useState(false);
+      const scrollRef = useRef(null);
+      const playlist = PLAYLISTS.find(p=>p.id===playlistId)||PLAYLISTS[1];
+      const tracks = (playlist.trackIds||[]).map(getTrack).filter(Boolean);
+      const totalDur = tracks.reduce((s,t)=>s+t.duration,0);
+      const gradColor = heroGrad(playlist.name);
+
+      useEffect(()=>{
+        const el=scrollRef.current; if(!el) return;
+        const h=()=>setScrolled(el.scrollTop>300);
+        el.addEventListener("scroll",h); return ()=>el.removeEventListener("scroll",h);
+      },[]);
+
+      return (
+        <div ref={scrollRef} style={{ flex:1,overflowY:"auto",borderRadius:8,background:"#121212" }}>
+          <Header scrolled={scrolled}/>
+
+          {/* Hero */}
+          <div style={{ padding:"0 24px 24px",marginTop:-72,paddingTop:72,background:`linear-gradient(180deg,${gradColor} 0%,#121212 60%)`,minHeight:340 }}>
+            <div style={{ display:"flex",gap:24,alignItems:"flex-end" }}>
+              {playlist.isLikedSongs ? (
+                <div style={{ width:232,height:232,borderRadius:4,background:"linear-gradient(135deg,#450af5,#c4efd9)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:"0 4px 60px rgba(0,0,0,0.5)" }}>
+                  <IcoHeart sz={80} fill="white" col="white"/>
+                </div>
+              ) : (
+                <img src={playlist.cover||"https://picsum.photos/seed/pl/300"} alt="" style={{ width:232,height:232,borderRadius:4,objectFit:"cover",flexShrink:0,boxShadow:"0 4px 60px rgba(0,0,0,0.5)" }}/>
+              )}
+              <div style={{ paddingBottom:8 }}>
+                <p style={{ fontSize:12,fontWeight:700,color:"#fff",textTransform:"uppercase",marginBottom:8 }}>Playlist</p>
+                <h1 style={{ fontSize:48,fontWeight:900,color:"#fff",lineHeight:1.05,marginBottom:8,letterSpacing:"-1px" }}>{playlist.name}</h1>
+                {playlist.description && <p style={{ fontSize:14,color:"rgba(255,255,255,0.7)",marginBottom:8 }}>{playlist.description}</p>}
+                <p style={{ fontSize:14,color:"rgba(255,255,255,0.7)" }}>
+                  <strong style={{ color:"#fff" }}>{playlist.owner}</strong>
+                  {playlist.followers>0 && <> • {fmtNum(playlist.followers)} likes</>}
+                  {" "} • {tracks.length} songs, <span style={{ color:"rgba(255,255,255,0.5)" }}>{Math.floor(totalDur/3600)} hr {Math.floor((totalDur%3600)/60)} min</span>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Controls – prototype big-play */}
+          <div style={{ padding:"24px 24px 8px",display:"flex",alignItems:"center",gap:24,background:`linear-gradient(180deg,${gradColor}33 0%,transparent 100%)` }}>
+            <button className="big-play-btn" onClick={()=>tracks.length>0&&playTrack(tracks[0],tracks)}>
+              <IcoPlay sz={24} fill="black" col="black"/>
+            </button>
+            <button style={{ background:"none",border:"none",cursor:"pointer",color:"#A7A7A7",transition:"color 0.1s,transform 0.1s",display:"flex" }}
+              onMouseEnter={e=>{ e.currentTarget.style.color="#fff"; e.currentTarget.style.transform="scale(1.05)"; }}
+              onMouseLeave={e=>{ e.currentTarget.style.color="#A7A7A7"; e.currentTarget.style.transform="scale(1)"; }}>
+              <IcoShuffle sz={24}/>
+            </button>
+            <button onClick={()=>addToast("Following playlist")} style={{ background:"none",border:"none",cursor:"pointer",color:"#A7A7A7",transition:"color 0.1s",display:"flex" }}
+              onMouseEnter={e=>e.currentTarget.style.color="#fff"} onMouseLeave={e=>e.currentTarget.style.color="#A7A7A7"}>
+              <IcoMore sz={24}/>
+            </button>
+          </div>
+
+          {/* Track table */}
+          <div style={{ padding:"0 24px",marginTop:16 }}>
+            <TrackTableHeader showAlbum showDate/>
+            {tracks.map((t,i)=>(
+              <TrackRow key={t.id} track={t} index={i} showAlbum showDate onPlay={tr=>playTrack(tr,tracks)}/>
+            ))}
+            {tracks.length===0 && (
+              <div style={{ textAlign:"center",padding:"64px 0" }}>
+                <IcoMusic sz={48} col="#A7A7A7" style={{ margin:"0 auto 16px" }}/>
+                <p style={{ color:"#fff",fontSize:18,fontWeight:700,marginBottom:8 }}>This playlist is empty</p>
+                <p style={{ color:"#A7A7A7",fontSize:14 }}>Find songs to add here.</p>
+              </div>
+            )}
+          </div>
+          <div style={{ height:32 }}/>
+        </div>
+      );
+    };
+
+    /* ===================== LIKED SONGS PAGE ===================== */
+    const LikedSongsPage = () => {
+      const { playTrack, likedSongs } = useApp();
+      const [scrolled, setScrolled] = useState(false);
+      const scrollRef = useRef(null);
+      const tracks = likedSongs.map(getTrack).filter(Boolean);
+      const totalDur = tracks.reduce((s,t)=>s+t.duration,0);
+
+      useEffect(()=>{
+        const el=scrollRef.current; if(!el) return;
+        const h=()=>setScrolled(el.scrollTop>300);
+        el.addEventListener("scroll",h); return ()=>el.removeEventListener("scroll",h);
+      },[]);
+
+      return (
+        <div ref={scrollRef} style={{ flex:1,overflowY:"auto",borderRadius:8,background:"#121212" }}>
+          <Header scrolled={scrolled}/>
+          <div style={{ padding:"0 24px 24px",marginTop:-72,paddingTop:72,background:"linear-gradient(180deg,#450af5 0%,#121212 60%)",minHeight:340 }}>
+            <div style={{ display:"flex",gap:24,alignItems:"flex-end" }}>
+              <div style={{ width:232,height:232,borderRadius:4,background:"linear-gradient(135deg,#450af5,#c4efd9)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:"0 4px 60px rgba(0,0,0,0.5)" }}>
+                <IcoHeart sz={80} fill="white" col="white"/>
+              </div>
+              <div style={{ paddingBottom:8 }}>
+                <p style={{ fontSize:12,fontWeight:700,color:"#fff",textTransform:"uppercase",marginBottom:8 }}>Playlist</p>
+                <h1 style={{ fontSize:48,fontWeight:900,color:"#fff",lineHeight:1.05,marginBottom:8,letterSpacing:"-1px" }}>Liked Songs</h1>
+                <p style={{ fontSize:14,color:"rgba(255,255,255,0.7)" }}>
+                  <strong style={{ color:"#fff" }}>You</strong>
+                  {" "} • {tracks.length} songs, <span style={{ color:"rgba(255,255,255,0.5)" }}>{Math.floor(totalDur/3600)} hr {Math.floor((totalDur%3600)/60)} min</span>
+                </p>
+              </div>
+            </div>
+          </div>
+          <div style={{ padding:"24px 24px 8px",display:"flex",alignItems:"center",gap:24 }}>
+            <button className="big-play-btn" onClick={()=>tracks.length>0&&playTrack(tracks[0],tracks)}>
+              <IcoPlay sz={24} fill="black" col="black"/>
+            </button>
+            <button style={{ background:"none",border:"none",cursor:"pointer",color:"#A7A7A7",display:"flex" }}
+              onMouseEnter={e=>e.currentTarget.style.color="#fff"} onMouseLeave={e=>e.currentTarget.style.color="#A7A7A7"}>
+              <IcoShuffle sz={24}/>
+            </button>
+          </div>
+          <div style={{ padding:"0 24px" }}>
+            <TrackTableHeader showAlbum showDate/>
+            {tracks.map((t,i)=>(
+              <TrackRow key={t.id} track={t} index={i} showAlbum showDate onPlay={tr=>playTrack(tr,tracks)}/>
+            ))}
+            {tracks.length===0 && (
+              <div style={{ textAlign:"center",padding:"64px 0" }}>
+                <IcoHeart sz={48} col="#A7A7A7" style={{ margin:"0 auto 16px" }}/>
+                <p style={{ color:"#fff",fontSize:18,fontWeight:700,marginBottom:8 }}>Songs you like will appear here</p>
+                <p style={{ color:"#A7A7A7",fontSize:14,marginBottom:24 }}>Save songs by tapping the heart icon.</p>
+              </div>
+            )}
+          </div>
+          <div style={{ height:32 }}/>
+        </div>
+      );
+    };
+
+    /* ===================== ARTIST PAGE ===================== */
+    const ArtistPage = ({ artistId }) => {
+      const { playTrack, navigate, toggleFollow, followedArtists, addToast } = useApp();
+      const [scrolled, setScrolled] = useState(false);
+      const scrollRef = useRef(null);
+      const artist = getArtist(artistId)||ARTISTS[0];
+      const artistTracks = tracksForArtist(artistId).slice(0,5);
+      const artistAlbums = albumsForArtist(artistId);
+      const isFollowed = followedArtists.includes(artistId);
+
+      useEffect(()=>{
+        const el=scrollRef.current; if(!el) return;
+        const h=()=>setScrolled(el.scrollTop>350);
+        el.addEventListener("scroll",h); return ()=>el.removeEventListener("scroll",h);
+      },[artistId]);
+
+      return (
+        <div ref={scrollRef} style={{ flex:1,overflowY:"auto",borderRadius:8,background:"#121212" }}>
+          <Header scrolled={scrolled}/>
+          {/* Artist header */}
+          <div style={{ position:"relative",minHeight:340,marginTop:-72 }}>
+            <img src={artist.header} alt="" style={{ position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",objectPosition:"center top" }}/>
+            <div style={{ position:"absolute",inset:0,background:"linear-gradient(transparent 30%,rgba(18,18,18,0.9))" }}/>
+            <div style={{ position:"relative",padding:"200px 24px 24px" }}>
+              {artist.verified && (
+                <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:8 }}>
+                  <IcoCheck sz={16} col="#3d91f4"/>
+                  <span style={{ fontSize:13,color:"#fff",fontWeight:600 }}>Verified Artist</span>
+                </div>
+              )}
+              <h1 style={{ fontSize:64,fontWeight:900,color:"#fff",lineHeight:1,letterSpacing:"-2px",marginBottom:8 }}>{artist.name}</h1>
+              <p style={{ fontSize:14,color:"rgba(255,255,255,0.7)" }}>{fmtNum(artist.monthly)} monthly listeners</p>
+            </div>
+          </div>
+
+          {/* Controls */}
+          <div style={{ padding:"24px 24px 8px",display:"flex",alignItems:"center",gap:24 }}>
+            <button className="big-play-btn" onClick={()=>artistTracks.length>0&&playTrack(artistTracks[0],artistTracks)}>
+              <IcoPlay sz={24} fill="black" col="black"/>
+            </button>
+            <button onClick={()=>toggleFollow(artistId)} style={{
+              padding:"6px 20px",borderRadius:100,background:"none",fontWeight:700,fontSize:14,cursor:"pointer",
+              border:`1px solid ${isFollowed?"rgba(255,255,255,0.3)":"rgba(255,255,255,0.3)"}`,
+              color:isFollowed?"#fff":"#fff",transition:"border-color 0.1s,transform 0.1s",
+            }}
+              onMouseEnter={e=>e.currentTarget.style.borderColor="#fff"}
+              onMouseLeave={e=>e.currentTarget.style.borderColor="rgba(255,255,255,0.3)"}>
+              {isFollowed?"Following":"Follow"}
+            </button>
+            <button style={{ background:"none",border:"none",cursor:"pointer",color:"#A7A7A7",display:"flex" }}
+              onMouseEnter={e=>e.currentTarget.style.color="#fff"} onMouseLeave={e=>e.currentTarget.style.color="#A7A7A7"}>
+              <IcoMore sz={24}/>
+            </button>
+          </div>
+
+          <div style={{ padding:"0 24px 32px" }}>
+            {/* Popular tracks */}
+            <h2 style={{ fontSize:22,fontWeight:800,color:"#fff",marginBottom:16 }}>Popular</h2>
+            <div style={{ marginBottom:32 }}>
+              <TrackTableHeader showAlbum={false}/>
+              {artistTracks.map((t,i)=>(
+                <TrackRow key={t.id} track={t} index={i} showAlbum={false} onPlay={tr=>playTrack(tr,artistTracks)}/>
+              ))}
+            </div>
+
+            {/* Albums */}
+            {artistAlbums.length>0 && <ScrollSection title={`Albums by ${artist.name}`} items={artistAlbums} type="album"/>}
+
+            {/* Bio */}
+            {artist.bio && (
+              <div style={{ marginTop:8 }}>
+                <h2 style={{ fontSize:22,fontWeight:800,color:"#fff",marginBottom:12 }}>About</h2>
+                <div style={{ background:"#1a1a1a",borderRadius:8,padding:24,position:"relative",overflow:"hidden" }}>
+                  <img src={artist.header} alt="" style={{ position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",opacity:0.15,filter:"blur(4px)" }}/>
+                  <div style={{ position:"relative" }}>
+                    <p style={{ fontSize:16,color:"rgba(255,255,255,0.85)",lineHeight:1.7,marginBottom:16 }}>{artist.bio}</p>
+                    <p style={{ fontSize:14,fontWeight:700,color:"#fff" }}>{fmtNum(artist.monthly)} monthly listeners</p>
+                    <p style={{ fontSize:14,color:"#A7A7A7" }}>{fmtNum(artist.followers)} followers</p>
+                    <div style={{ display:"flex",gap:8,marginTop:12 }}>
+                      {artist.genres.map(g=>(
+                        <span key={g} style={{ padding:"4px 12px",borderRadius:100,background:"#2a2a2a",fontSize:13,color:"#fff" }}>{g}</span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    /* ===================== ALBUM PAGE ===================== */
+    const AlbumPage = ({ albumId }) => {
+      const { playTrack, navigate, addToast } = useApp();
+      const [scrolled, setScrolled] = useState(false);
+      const scrollRef = useRef(null);
+      const album  = getAlbum(albumId)||ALBUMS[0];
+      const artist = getArtist(album.artistId);
+      const tracks = tracksForAlbum(albumId);
+      const totalDur = tracks.reduce((s,t)=>s+t.duration,0);
+      const gradColor = heroGrad(album.title);
+
+      useEffect(()=>{
+        const el=scrollRef.current; if(!el) return;
+        const h=()=>setScrolled(el.scrollTop>300);
+        el.addEventListener("scroll",h); return ()=>el.removeEventListener("scroll",h);
+      },[albumId]);
+
+      return (
+        <div ref={scrollRef} style={{ flex:1,overflowY:"auto",borderRadius:8,background:"#121212" }}>
+          <Header scrolled={scrolled}/>
+          <div style={{ padding:"0 24px 24px",marginTop:-72,paddingTop:72,background:`linear-gradient(180deg,${gradColor} 0%,#121212 60%)`,minHeight:340 }}>
+            <div style={{ display:"flex",gap:24,alignItems:"flex-end" }}>
+              <img src={album.cover} alt="" style={{ width:232,height:232,borderRadius:4,objectFit:"cover",flexShrink:0,boxShadow:"0 4px 60px rgba(0,0,0,0.5)" }}/>
+              <div style={{ paddingBottom:8 }}>
+                <p style={{ fontSize:12,fontWeight:700,color:"#fff",textTransform:"uppercase",marginBottom:8 }}>{album.type}</p>
+                <h1 style={{ fontSize:48,fontWeight:900,color:"#fff",lineHeight:1.05,marginBottom:8,letterSpacing:"-1px" }}>{album.title}</h1>
+                <div style={{ display:"flex",alignItems:"center",gap:8 }}>
+                  <img src={artist?.image} alt="" style={{ width:24,height:24,borderRadius:"50%",objectFit:"cover" }}/>
+                  <span style={{ fontSize:14,color:"#fff",fontWeight:700,cursor:"pointer" }}
+                    onClick={()=>navigate("artist",album.artistId)}
+                    onMouseEnter={e=>e.currentTarget.style.textDecoration="underline"}
+                    onMouseLeave={e=>e.currentTarget.style.textDecoration=""}>{artist?.name}</span>
+                  <span style={{ color:"rgba(255,255,255,0.5)" }}>•</span>
+                  <span style={{ fontSize:14,color:"rgba(255,255,255,0.7)" }}>{album.year}</span>
+                  <span style={{ color:"rgba(255,255,255,0.5)" }}>•</span>
+                  <span style={{ fontSize:14,color:"rgba(255,255,255,0.7)" }}>{tracks.length} songs, {Math.floor(totalDur/60)} min</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ padding:"24px 24px 8px",display:"flex",alignItems:"center",gap:24,background:`linear-gradient(180deg,${gradColor}33 0%,transparent 100%)` }}>
+            <button className="big-play-btn" onClick={()=>tracks.length>0&&playTrack(tracks[0],tracks)}>
+              <IcoPlay sz={24} fill="black" col="black"/>
+            </button>
+            <button onClick={()=>addToast("Added to library")} style={{ background:"none",border:"none",cursor:"pointer",color:"#A7A7A7",display:"flex" }}
+              onMouseEnter={e=>e.currentTarget.style.color="#fff"} onMouseLeave={e=>e.currentTarget.style.color="#A7A7A7"}>
+              <IcoMore sz={24}/>
+            </button>
+          </div>
+
+          <div style={{ padding:"0 24px" }}>
+            <TrackTableHeader showAlbum={false}/>
+            {tracks.map((t,i)=>(
+              <TrackRow key={t.id} track={t} index={i} showAlbum={false} onPlay={tr=>playTrack(tr,tracks)}/>
+            ))}
+          </div>
+          <div style={{ padding:"24px",color:"#A7A7A7",fontSize:13 }}>
+            <p style={{ fontWeight:700,marginBottom:4 }}>{album.year}</p>
+            <p>{album.copyright}</p>
+            <p>{album.label}</p>
+          </div>
+        </div>
+      );
+    };
+
+    /* ===================== APP ===================== */
+    function SpotifyApp() {
+      const renderPage = (nav) => {
+        switch(nav.page){
+          case "search":   return <SearchPage/>;
+          case "playlist": return <PlaylistPage playlistId={nav.id||"pl2"}/>;
+          case "artist":   return <ArtistPage   artistId={nav.id||"a1"}/>;
+          case "album":    return <AlbumPage     albumId={nav.id||"al1"}/>;
+          case "liked":    return <LikedSongsPage/>;
+          default:         return <HomePage/>;
+        }
+      };
+      return (
+        <AppProvider>
+          <AppInner renderPage={renderPage}/>
+        </AppProvider>
+      );
+    }
+
+    function AppInner({ renderPage }) {
+      const { nav } = useApp();
+      return (
+        <div style={{ display:"flex",flexDirection:"column",height:"100vh",overflow:"hidden",background:"#000",fontFamily:"'Circular Std',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif" }}>
+          <div style={{ display:"flex",flex:1,gap:8,padding:8,overflow:"hidden" }}>
+            <Sidebar/>
+            {renderPage(nav)}
+            <QueuePanel/>
+          </div>
+          <PlayerBar/>
+          <Toasts/>
+          <ContextMenuComp/>
+          <CreatePlaylistModal/>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<SpotifyApp/>);
+  </script>
+</body>
+</html>
